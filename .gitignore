@@ -1,0 +1,25 @@
+# segredos / ambiente
+.env
+*.env
+!.env.example
+
+# venv / caches
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# dados / mídias / saídas (conteúdo de reunião = confidencial)
+data/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.mp4
+*.transcript.txt
+*.ata.md
+
+# modelos baixados
+models/

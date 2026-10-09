@@ -1,0 +1,18 @@
+# escriba — transcrição de áudio + geração de ata
+# Núcleo
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-dotenv==1.0.1
+python-multipart==0.0.20
+
+# Transcrição local (motor padrão, grátis)
+faster-whisper==1.2.1
+requests==2.32.3  # dependência transitiva do faster-whisper (não puxada automática)
+av==13.1.0       # PIN CRÍTICO: PyAV >=14 remove 'metadata_errors' e quebra o faster-whisper
+
+# Sumarização / ata (opcional — só se usar engine de IA)
+anthropic==0.69.0
+
+# Dev / testes
+pytest==8.3.4
+httpx==0.28.1
