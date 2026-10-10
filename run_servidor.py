@@ -1,4 +1,5 @@
-"""Sobe o Escriba em http://localhost:8000"""
+"""Modo servidor (antigo): sobe o Escriba em http://localhost:8000 para usar no navegador.
+Para o uso normal, prefira o programa: run.sh / run.bat / Escriba.exe."""
 import uvicorn
 
 if __name__ == "__main__":

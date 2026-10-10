@@ -1,12 +1,24 @@
-# Núcleo do Escriba (engine AssemblyAI — funciona em qualquer máquina)
+# Núcleo do Escriba
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 python-dotenv>=1.0
-assemblyai>=0.30
-anthropic>=0.40        # opcional: ata automática da reunião
 
-# Novidades da v2 (PDFs assinados, assinatura, e-mail)
-weasyprint>=62         # PDF da ata e da transcrição (precisa de libs do sistema — ver README)
-markdown>=3.5          # ata (Markdown) -> HTML -> PDF
-pillow>=10.0           # tratamento da imagem da assinatura
+# Motor local (padrão, offline): Whisper + diarização ONNX
+faster-whisper==1.2.1
+av==13.1.0            # PIN: PyAV >=14 quebra o faster-whisper 1.2.1; também substitui o ffmpeg
+sherpa-onnx>=1.12     # embedding de voz p/ identificar falantes (sem PyTorch)
+numpy>=1.26
+
+# Programa de desktop (janela própria, sem navegador)
+pywebview>=5.0
+pywebview[qt]>=5.0; sys_platform == "linux"   # no Windows usa o WebView2 do sistema
+
+# Opcionais
+assemblyai>=0.30      # motor na nuvem
+anthropic>=0.40       # ata automática
+
+# PDFs, assinatura, e-mail (v2)
+weasyprint>=62        # precisa de Pango (Linux: já vem; Windows: ver README)
+markdown>=3.5
+pillow>=10.0

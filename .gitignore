@@ -23,3 +23,8 @@ data/
 
 # modelos baixados
 models/
+
+# build
+build/
+dist/
+.venv-build/

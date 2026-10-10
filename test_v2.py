@@ -362,7 +362,7 @@ def main() -> None:
 
             # ---- sem participantes cadastrados: linhas em branco ---------------
             with wav.open("rb") as f:
-                r = client.post("/api/jobs", files={"file": ("sem_nomes.wav", f, "audio/wav")}, data={"language": "pt"})
+                r = client.post("/api/jobs", files={"file": ("sem_nomes.wav", f, "audio/wav")}, data={"engine": "assemblyai", "language": "pt"})
             jid2 = r.json()["id"]
             esperar(client, jid2, "status", ("concluido", "erro"))
             assert client.get(f"/api/jobs/{jid2}/file/ata_pdf").status_code == 404, "sem ata -> 404"

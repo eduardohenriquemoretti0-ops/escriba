@@ -1,20 +1,44 @@
 """API do Escriba (FastAPI)."""
 from __future__ import annotations
 
+import os
 import re
+import secrets
 import shutil
 import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import config, jobs, mailer, media, pdfdocs, profile, review, worker
 
 app = FastAPI(title="Escriba", docs_url="/api/docs")
+
+# Modo programa (escriba_app.py): só a janela do Escriba, que recebeu o token
+# desta sessão, pode usar a API. Outra aba de navegador ou outro programa que
+# descubra a porta recebe 403 — evita que um site malicioso aberto no
+# navegador dispare ações no Escriba via 127.0.0.1.
+_SESSION_TOKEN = os.getenv("ESCRIBA_SESSION_TOKEN", "")
+_COOKIE = "escriba_sessao"
+
+
+@app.middleware("http")
+async def _session_guard(request: Request, call_next):
+    if not _SESSION_TOKEN or request.url.path == "/api/health":
+        return await call_next(request)
+    given = request.query_params.get("t")
+    if given is not None and secrets.compare_digest(given, _SESSION_TOKEN):
+        response = await call_next(request)
+        response.set_cookie(_COOKIE, _SESSION_TOKEN, httponly=True, samesite="strict")
+        return response
+    cookie = request.cookies.get(_COOKIE, "")
+    if not secrets.compare_digest(cookie, _SESSION_TOKEN):
+        return JSONResponse({"detail": "Sessão inválida."}, status_code=403)
+    return await call_next(request)
 
 STATIC_DIR = Path(__file__).parent / "static"
 _JOB_ID = re.compile(r"^[0-9a-f]{12}$")
@@ -91,6 +115,11 @@ def _file_for(job: jobs.Job, kind: str) -> tuple[Path, str, str]:
 # --------------------------------------------------------------------------
 # Jobs
 # --------------------------------------------------------------------------
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
+
 @app.get("/api/config")
 def get_config():
     return {
@@ -114,7 +143,7 @@ async def create_job(
     except media.MediaError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
 
-    if engine not in ("assemblyai", "whisperx"):
+    if engine not in ("local", "assemblyai", "whisperx"):
         raise HTTPException(status_code=422, detail="Engine inválido.")
 
     job = jobs.new_job(

@@ -348,8 +348,9 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   <div class="opcoes">
     <label class="campo">Motor
       <select id="engine">
-        <option value="assemblyai">AssemblyAI · nuvem (sem GPU)</option>
-        <option value="whisperx">WhisperX · 100% local (GPU)</option>
+        <option value="local" selected>Local · offline (funciona sem internet)</option>
+        <option value="assemblyai">AssemblyAI · nuvem (precisa de internet)</option>
+        <option value="whisperx">WhisperX · local com GPU (avançado)</option>
       </select>
     </label>
     <label class="campo">Idioma
@@ -739,7 +740,7 @@ function downloadsHTML(job){
 
 function cardHTML(job){
   const dur = job.duration ? ` · ${hms(job.duration)}` : "";
-  const eng = job.engine === "whisperx" ? "WhisperX local" : "AssemblyAI";
+  const eng = {local: "Local offline", whisperx: "WhisperX local", assemblyai: "AssemblyAI"}[job.engine] || job.engine;
   const fase = (job.status === "processando" || job.status === "na_fila")
     ? `<p class="fase">Fase: <b>${esc(job.phase)}</b></p>` : "";
   const erro = job.error ? `<p class="msg-erro">${esc(job.error)}</p>` : "";

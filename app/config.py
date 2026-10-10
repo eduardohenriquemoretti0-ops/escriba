@@ -1,31 +1,59 @@
 """Configuração central do Escriba — lida do ambiente / arquivo .env."""
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Rodando como programa empacotado (PyInstaller) ou pelo código-fonte?
+FROZEN = getattr(sys, "frozen", False)
+if FROZEN:
+    # pasta do executável: models/ e .env ficam ao lado dele
+    BASE_DIR = Path(sys.executable).resolve().parent
+    # dados num lugar sempre gravável (Program Files não é)
+    _DEFAULT_DATA = Path.home() / "Escriba"
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    _DEFAULT_DATA = BASE_DIR / "data"
+
 load_dotenv(BASE_DIR / ".env")
+load_dotenv(_DEFAULT_DATA / ".env")   # alternativa editável pelo usuário
 
 # --- Diretórios -------------------------------------------------------------
-DATA_DIR = Path(os.getenv("ESCRIBA_DATA_DIR", BASE_DIR / "data"))
+DATA_DIR = Path(os.getenv("ESCRIBA_DATA_DIR", _DEFAULT_DATA))
+MODELS_DIR = Path(os.getenv("ESCRIBA_MODELS_DIR", BASE_DIR / "models"))
 JOBS_DIR = DATA_DIR / "jobs"
 PROFILE_DIR = DATA_DIR / "profile"          # perfil + assinatura do cliente
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Motor de transcrição ---------------------------------------------------
-# "assemblyai"  -> API na nuvem, com diarização nativa (recomendado sem GPU)
-# "whisperx"    -> 100% local (Whisper + pyannote), recomendado com GPU NVIDIA
-DEFAULT_ENGINE = os.getenv("ESCRIBA_ENGINE", "assemblyai")
+# "local"       -> 100% offline: Faster-Whisper + diarização ONNX (padrão)
+# "assemblyai"  -> API na nuvem (precisa de internet e chave)
+# "whisperx"    -> local com PyTorch + pyannote (GPU NVIDIA, instalação pesada)
+DEFAULT_ENGINE = os.getenv("ESCRIBA_ENGINE", "local")
 
 # --- AssemblyAI --------------------------------------------------------------
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
 
-# --- WhisperX (local) --------------------------------------------------------
+# --- Motor local (Faster-Whisper + diarização ONNX) -------------------------
+# large-v3-turbo: qualidade próxima do large-v3, bem mais rápido na CPU.
+# Máquina fraca: small (rápido, erra mais) | medium
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3-turbo")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")      # auto | cuda | cpu
+WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "auto")    # auto | int8 | float16...
+WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
+CPU_THREADS = int(os.getenv("ESCRIBA_CPU_THREADS", str(os.cpu_count() or 4)))
+DIARIZATION_MODEL = os.getenv(
+    "ESCRIBA_DIARIZATION_MODEL",
+    str(MODELS_DIR / "diarizacao" / "wespeaker_en_voxceleb_resnet34_LM.onnx"))
+# Termos que o Whisper deve preferir em toda reunião (empresas, produtos...)
+# separados por vírgula. Os participantes de cada reunião entram sozinhos.
+EXTRA_TERMS = [t.strip() for t in os.getenv("ESCRIBA_TERMOS", "").split(",") if t.strip()]
+
+# --- WhisperX (local com PyTorch, opcional) ---------------------------------
 HF_TOKEN = os.getenv("HF_TOKEN", "")               # token Hugging Face (pyannote)
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")   # auto | cuda | cpu
+WHISPERX_MODEL = os.getenv("WHISPERX_MODEL", "large-v3")
 WHISPER_BATCH_SIZE = int(os.getenv("WHISPER_BATCH_SIZE", "8"))
 
 # --- Ata automática (opcional, via API Anthropic) ----------------------------

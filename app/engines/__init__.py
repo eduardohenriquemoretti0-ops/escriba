@@ -1,8 +1,10 @@
 from .assemblyai_engine import AssemblyAIEngine
 from .base import Segment, merge_segments
+from .local_engine import LocalEngine
 from .whisperx_engine import WhisperXEngine
 
 _ENGINES = {
+    "local": LocalEngine,
     "assemblyai": AssemblyAIEngine,
     "whisperx": WhisperXEngine,
 }

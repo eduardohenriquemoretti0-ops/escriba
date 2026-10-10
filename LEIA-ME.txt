@@ -1,0 +1,30 @@
+ESCRIBA — transcrição de reuniões com identificação de falantes
+================================================================
+
+COMO ABRIR
+  Windows: dê dois cliques em Escriba.exe
+  Linux:   dê dois cliques em Escriba (ou rode ./Escriba no terminal)
+
+FUNCIONA SEM INTERNET
+  O motor "Local · offline" (padrão) transcreve e separa quem falou o quê
+  inteiramente neste computador. Se a internet cair no meio da reunião,
+  nada muda. Só precisam de internet:
+    - o motor "AssemblyAI" (opcional, na nuvem);
+    - a ata automática por IA e o envio por e-mail.
+
+ONDE FICAM OS ARQUIVOS
+  Transcrições, atas e perfil: pasta "Escriba" dentro da pasta do usuário
+    (Windows: C:\Users\<você>\Escriba   Linux: ~/Escriba)
+  Registro de erros (para o suporte): Escriba\escriba.log
+
+CONFIGURAÇÕES (opcional)
+  Copie ".env.example" para ".env" (ao lado do programa ou na pasta Escriba)
+  e preencha só o que for usar: chave da ata (ANTHROPIC_API_KEY), e-mail (SMTP_*),
+  termos frequentes da empresa (ESCRIBA_TERMOS), modelo (WHISPER_MODEL).
+
+DICAS PARA MELHOR RESULTADO
+  - Informe os nomes dos participantes no envio: o motor passa a preferir
+    a grafia certa deles.
+  - Informe quantas pessoas falaram (mín./máx.): a separação de vozes melhora.
+  - Tempo de processamento no motor local (CPU comum): cerca de 1x a duração
+    do áudio. Uma reunião de 1 h leva por volta de 1 h.

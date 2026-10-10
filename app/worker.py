@@ -119,7 +119,7 @@ def _process(job: jobs.Job) -> None:
 
     # 1) Normalizar o áudio para o engine escolhido
     engine = get_engine(job.engine)
-    if engine.name == "whisperx":
+    if engine.name in ("local", "whisperx"):
         job.set_phase("Extraindo áudio (WAV 16 kHz)")
         audio = media.to_wav16k(original, job.path("audio.wav"))
     else:

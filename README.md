@@ -1,98 +1,94 @@
-# Escriba — transcrição de reuniões, self-hosted
+# Escriba — transcrição de reuniões, offline
 
-App web local no estilo Otter.ai: recebe áudio ou vídeo, transcreve com
-identificação de falantes (diarização) e exporta **TXT, SRT, VTT, JSON e PDF** —
+Programa de desktop no estilo Otter.ai: recebe áudio ou vídeo, transcreve com
+identificação de falantes (diarização) e exporta **TXT, SRT, VTT, JSON e PDF**,
 com **ata automática** opcional gerada por IA.
 
-**Novidades da v2** (detalhes na seção [Nomes, assinatura e e-mail](#nomes-assinatura-e-e-mail)):
-1. **Nomes dos participantes** — o cliente informa a grafia correta logo após a
-   transcrição; ela vale para os arquivos, para a ata e para as linhas de assinatura.
-2. **Envio por e-mail** da ata e da transcrição (SMTP), direto da tela.
-3. **Assinatura do cliente** — cadastrada uma vez; a ata e a transcrição em PDF
-   saem já assinadas por ele, com linhas em branco para cada participante assinar.
+**Novidades da v3**
+1. **Funciona sem internet.** O motor padrão (**Local**) transcreve e separa os
+   falantes no próprio computador. Se a conexão do cliente cair no meio do
+   trabalho, nada muda.
+2. **É um programa, não um site.** Abre numa janela própria (`Escriba.exe` no
+   Windows, `run.sh`/`run.bat` pelo código-fonte). Não abre navegador e não
+   fica exposto na rede.
+3. **Não precisa mais instalar o ffmpeg.** A conversão de mídia usa o FFmpeg
+   que já vem embutido no pacote Python (PyAV).
 
-Feito para reuniões longas (2 h+), com vários participantes, gravadas no Zoom
-ou em qualquer outra fonte.
+Da v2 continuam: nomes dos participantes, envio por e-mail e assinatura
+(ver [Nomes, assinatura e e-mail](#nomes-assinatura-e-e-mail)).
 
 **Formatos aceitos**
 Áudio: `.m4a` `.mp3` `.wav` `.wma` `.m4p` `.aac` `.ogg` `.flac`
 Vídeo: `.mp4` `.mov` `.avi` `.mpeg`/`.mpg` `.wmv` `.mkv` `.3gp` `.webm`
-(o ffmpeg extrai e normaliza o áudio de todos)
 
 ---
 
-## Instalação (5 minutos)
+## Como usar
 
-Pré-requisitos: **Python 3.10+** e **ffmpeg** no PATH.
+### Programa pronto (para o cliente)
+Descompacte o `Escriba-windows-amd64.zip` e dê dois cliques em `Escriba.exe`.
+Os modelos já vêm na pasta `models/`, então não é preciso instalar nada nem
+ter internet. As transcrições ficam em `C:\Users\<usuário>\Escriba`.
 
+### Pelo código-fonte (desenvolvimento)
 ```bash
-# Ubuntu (ffmpeg + bibliotecas que o WeasyPrint usa para gerar os PDFs)
-sudo apt install ffmpeg libpango-1.0-0 libpangoft2-1.0-0 fonts-liberation
-
-cd escriba
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env
-# edite o .env e cole sua ASSEMBLYAI_API_KEY (chave gratuita em assemblyai.com)
-
-python run.py
-# abra http://localhost:8000
+./run.sh        # Linux
+run.bat         # Windows
 ```
+Na primeira vez, o script cria o `.venv`, instala as dependências e baixa os
+modelos (~1,7 GB, precisa de internet só nessa hora). Depois disso, abre direto.
 
-No Windows/macOS o WeasyPrint precisa de passos extras de instalação (GTK/Pango);
-siga o guia oficial: https://doc.courtbouillon.org/weasyprint/stable/first_steps.html
-— ou rode o Escriba dentro do WSL/Ubuntu. Sem essas bibliotecas tudo funciona,
-**menos os PDFs** (e o anexo em PDF do e-mail).
+### Gerar o executável
+O PyInstaller só gera executável para o sistema onde roda:
+- **Windows:** numa máquina Windows 10/11 com Python 3.11+, rode `build_windows.bat`.
+  Sai `dist\Escriba\Escriba.exe` e `dist\Escriba-windows-amd64.zip`.
+- **Linux:** `python build.py` gera `dist/Escriba/Escriba`.
 
-Para acessar de outro dispositivo da rede, troque o host no `run.py` para
-`0.0.0.0` (o app **não tem autenticação**: quem alcançar a porta pode baixar
-transcrições, ver a assinatura cadastrada e disparar e-mails com a sua conta —
-use apenas em rede confiável ou atrás de um login/proxy).
+O modo servidor antigo (navegador em `localhost:8000`) continua disponível em
+`run_servidor.py`, para quem quiser usar o Escriba pela rede.
 
 ---
 
-## Os dois motores de transcrição
+## Os motores de transcrição
 
-O app tem uma camada de engine plugável (`app/engines/`). Você escolhe por
-upload, na própria interface.
+### 1. Local (padrão): offline, sem GPU
+O pipeline imita o do AssemblyAI. Cada recurso tem um equivalente local:
 
-### 1. AssemblyAI (padrão) — nuvem, sem GPU
-- Diarização nativa e madura, português suportado, arquivos de até ~10 h.
-- Custo na casa de **US$ 0,17/hora de áudio** (modelo Universal + speaker
-  labels) — uma reunião de 2 h sai por ~US$ 0,35. Contas novas ganham
-  **US$ 50 em créditos**, o que dá centenas de horas para validar.
-  Valores mudam; confira `assemblyai.com/pricing`.
-- É o caminho certo enquanto sua máquina não tem GPU dedicada: o i5 4ª geração
-  só faz a conversão ffmpeg (rápida) e o resto acontece na nuvem.
+| AssemblyAI | Escriba Local |
+|---|---|
+| modelo Universal | Whisper **large-v3-turbo** (int8, CPU) |
+| `punctuate` / `format_text` | pontuação e maiúsculas nativas do Whisper |
+| `keyterms_prompt` / `word_boost` | `hotwords` do Whisper com os participantes + `ESCRIBA_TERMOS` |
+| `speaker_labels` | embedding de voz por frase (WeSpeaker, ONNX) + agrupamento espectral |
+| `speakers_expected` / `speaker_options` | mín./máx. de falantes no envio (padrão 1–10) |
+| `utterances` | frases do mesmo falante unidas em blocos |
+| filtro de ruído/silêncio | VAD Silero e limiares anti-alucinação do Whisper |
 
-### 2. WhisperX — 100% local, privado
-Whisper `large-v3` + alinhamento + diarização pyannote. **Nada sai da sua
-máquina** — indicado para gravações sensíveis (clientes corporativos, órgãos
-públicos) que não podem ir para uma API nos EUA.
+Como funciona a separação de falantes (`app/engines/diarize.py`):
+1. O Whisper marca o tempo de cada palavra.
+2. As palavras viram frases, cortadas na pontuação ou numa pausa. A troca de
+   falante quase sempre cai numa dessas fronteiras.
+3. Cada frase de 1 s ou mais vira um vetor de timbre de voz.
+4. Um agrupamento espectral estima quantas vozes existem pelo maior salto entre
+   autovalores (eigengap), sempre dentro do mínimo/máximo informado.
+5. Frases curtas ("Sim.", "Tá.") herdam a voz mais parecida. Em caso de
+   empate, ficam com o falante anterior.
 
-```bash
-pip install -r requirements.txt -r requirements-local.txt   # instala PyTorch
-```
+Não usa PyTorch nem token do Hugging Face. O executável fica leve e roda em
+qualquer PC. Na CPU (i5 de 4 núcleos), leva aproximadamente o tempo do próprio
+áudio. Para máquinas fracas, use `WHISPER_MODEL=small` no `.env` (bem mais
+rápido, porém erra mais).
 
-Configuração extra no `.env`:
-1. Crie um token em `huggingface.co/settings/tokens` → `HF_TOKEN=`
-2. Aceite os termos (gratuito, 1 clique cada) nas páginas dos modelos
-   **`pyannote/speaker-diarization-3.1`** e **`pyannote/segmentation-3.0`**
-   no Hugging Face. Sem isso a diarização falha com erro 401 — é a pegadinha
-   clássica do setup.
+### 2. AssemblyAI: nuvem
+Precisa de internet e de `ASSEMBLYAI_API_KEY`. Custa cerca de US$ 0,15–0,21
+por hora de áudio, conforme o modelo (confira em `assemblyai.com/pricing`).
+Use quando quiser comparar resultados ou quando o computador for muito lento.
 
-Desempenho esperado para 2 h de áudio com `large-v3`:
-
-| Hardware                  | Tempo aproximado |
-|---------------------------|------------------|
-| RTX 3060 / 3060 Ti (8 GB+)| 10–25 min        |
-| CPU (i5 4ª geração)       | inviável (10 h+) — use `WHISPER_MODEL=small` para testes curtos |
-
-Ou seja: no seu hardware atual, use AssemblyAI no dia a dia e deixe o WhisperX
-pronto para quando a GPU do upgrade chegar — nada no app muda, só o `.env`.
-
----
+### 3. WhisperX: local com GPU NVIDIA (avançado)
+Whisper `large-v3` + pyannote via PyTorch. Exige GPU com 8 GB ou mais,
+`pip install -r requirements-local.txt`, `HF_TOKEN` e o aceite dos termos dos
+modelos `pyannote/speaker-diarization-3.1` e `pyannote/segmentation-3.0` no
+Hugging Face. Não entra no executável.
 
 ## Ata automática (opcional)
 
@@ -181,6 +177,7 @@ registrado no card da transcrição.
 ## Testes
 
 ```bash
+python -m pytest test_diarize.py   # diarização local (sem modelos)
 python test_integracao.py   # fluxo original (sem chaves de API)
 python test_v2.py           # nomes, correções, assinatura, PDFs, e-mail (SMTP local)
 python test_ui.py           # opcional: tela num Chromium (pip install playwright && playwright install chromium)
@@ -206,7 +203,11 @@ tocam no seu `data/`.
 
 ```
 escriba/
-├── run.py                     # sobe o servidor (localhost:8000)
+├── escriba_app.py             # programa de desktop (janela própria)
+├── run.sh / run.bat           # abre o programa pelo código-fonte
+├── build.py / escriba.spec    # gera o executável (PyInstaller)
+├── baixar_modelos.py          # baixa os modelos para models/
+├── run_servidor.py            # modo servidor antigo (localhost:8000)
 ├── app/
 │   ├── main.py                # API FastAPI + UI estática
 │   ├── worker.py              # fila (1 job por vez) em thread; também refaz atas
@@ -214,12 +215,14 @@ escriba/
 │   ├── profile.py             # perfil do cliente + imagem da assinatura
 │   ├── pdfdocs.py             # PDF da ata e da transcrição (WeasyPrint)
 │   ├── mailer.py              # envio por SMTP
-│   ├── media.py               # ffmpeg: validação, conversão, duração
+│   ├── media.py               # PyAV: validação, conversão, duração
 │   ├── jobs.py                # estado persistido em data/jobs/{id}/meta.json
 │   ├── exports.py             # TXT / SRT / VTT / JSON + timeline da UI
 │   ├── summary.py             # ata via API Anthropic (opcional)
 │   └── engines/
 │       ├── base.py            # contrato Segment + merge de falas
+│       ├── local_engine.py    # motor offline (padrão)
+│       ├── diarize.py         # separação de falantes local
 │       ├── assemblyai_engine.py
 │       └── whisperx_engine.py
 ├── data/jobs/<id>/            # original + saídas de cada transcrição

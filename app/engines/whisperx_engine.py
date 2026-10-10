@@ -57,11 +57,11 @@ class WhisperXEngine:
 
         device, compute_type = _pick_device()
 
-        progress(f"Carregando modelo {config.WHISPER_MODEL} ({device})")
-        cache_key = (config.WHISPER_MODEL, device)
+        progress(f"Carregando modelo {config.WHISPERX_MODEL} ({device})")
+        cache_key = (config.WHISPERX_MODEL, device)
         if cache_key not in _model_cache:
             _model_cache[cache_key] = whisperx.load_model(
-                config.WHISPER_MODEL, device, compute_type=compute_type
+                config.WHISPERX_MODEL, device, compute_type=compute_type
             )
         model = _model_cache[cache_key]
 
