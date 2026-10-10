@@ -13,14 +13,15 @@ from __future__ import annotations
 import queue
 import threading
 import time
-import traceback
 from pathlib import Path
 
 import json
+import logging
 
 from . import config, exports, jobs, media, nomes, review, vozes
 from .engines import get_engine, merge_segments
 
+log = logging.getLogger("escriba.worker")
 _queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
 _started = False
 
@@ -52,7 +53,8 @@ def _loop() -> None:
                 if job is not None:
                     _process(job)
         except Exception as exc:  # noqa: BLE001 — worker nunca pode morrer
-            traceback.print_exc()
+            # vai para o escriba.log (no programa empacotado não há console)
+            log.exception("Falha no job %s (%s)", job_id, kind)
             if kind == "processo":
                 _mark_failed(job_id, str(exc))
         finally:
@@ -98,7 +100,7 @@ def run_ata(job_id: str) -> None:
             j.outputs = review.outputs_for(j)
         jobs.update(job_id, ok)
     except Exception as exc:  # noqa: BLE001
-        traceback.print_exc()
+        log.exception("Falha ao gerar a ata do job %s", job_id)
 
         def fail(j: jobs.Job) -> None:
             j.ata_status = jobs.ATA_ERRO

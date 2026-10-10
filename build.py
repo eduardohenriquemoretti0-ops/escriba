@@ -16,7 +16,28 @@ ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist" / "Escriba"
 
 
+def _programa_aberto() -> list[int]:
+    """PIDs do Escriba empacotado em execução (Linux). Refazer o build por
+    cima de um programa aberto quebra imports tardios dele com
+    "Error -3 while decompressing data: incorrect header check"."""
+    import os
+
+    exe = str(DIST / "Escriba")
+    pids = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            # depois de um rebuild o link vira ".../Escriba (deleted)"
+            alvo = os.readlink(proc / "exe").removesuffix(" (deleted)")
+        except OSError:
+            continue
+        if alvo == exe:
+            pids.append(int(proc.name))
+    return pids
+
+
 def main() -> None:
+    if sys.platform.startswith("linux") and (pids := _programa_aberto()):
+        sys.exit(f"Feche o Escriba antes de gerar o build (aberto: PID {pids}).")
     subprocess.run([sys.executable, "baixar_modelos.py"], cwd=ROOT, check=True)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
                     "escriba.spec"], cwd=ROOT, check=True)
