@@ -128,7 +128,14 @@ def get_config():
     return {
         "ata_disponivel": bool(config.ANTHROPIC_API_KEY),
         "email_configurado": mailer.configured(),
+        "whisperx_instalado": _whisperx_installed(),
     }
+
+
+def _whisperx_installed() -> bool:
+    """WhisperX é opcional (PyTorch + GPU): fica fora do programa empacotado."""
+    import importlib.util
+    return importlib.util.find_spec("whisperx") is not None
 
 
 @app.post("/api/jobs")
@@ -148,6 +155,11 @@ async def create_job(
 
     if engine not in ("local", "assemblyai", "whisperx"):
         raise HTTPException(status_code=422, detail="Engine inválido.")
+    if engine == "whisperx" and not _whisperx_installed():
+        raise HTTPException(
+            status_code=422,
+            detail="O WhisperX não está instalado neste computador (exige PyTorch "
+                   "e GPU NVIDIA de 8 GB+). Use o motor Local, que funciona offline.")
 
     job = jobs.new_job(
         filename=file.filename or f"arquivo{ext}",

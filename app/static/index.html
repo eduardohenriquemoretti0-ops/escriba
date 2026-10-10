@@ -1023,6 +1023,13 @@ async function carregarConfig(){
     const r = await fetch("/api/config");
     if (r.ok) cfg = await r.json();
   } catch(_) {}
+  // WhisperX é opcional (PyTorch + GPU de 8 GB): sem ele instalado, não oferece
+  const optX = document.querySelector('#engine option[value="whisperx"]');
+  if (optX && cfg.whisperx_instalado === false) {
+    optX.disabled = true;
+    optX.textContent = "WhisperX · não instalado (precisa de GPU 8 GB+)";
+    if ($("#engine").value === "whisperx") $("#engine").value = "local";
+  }
 }
 
 async function abrirPerfil(){

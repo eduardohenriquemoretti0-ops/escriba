@@ -226,7 +226,7 @@ def main() -> None:
 
             # ---- config / perfil vazio --------------------------------------
             cfg = client.get("/api/config").json()
-            assert cfg == {"ata_disponivel": True, "email_configurado": True}, cfg
+            assert cfg == {"ata_disponivel": True, "email_configurado": True, "whisperx_instalado": False}, cfg
             p0 = client.get("/api/profile").json()
             assert p0["tem_assinatura"] is False and p0["nome"] == ""
             assert client.get("/api/profile/signature.png").status_code == 404
