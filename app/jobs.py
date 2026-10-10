@@ -1,77 +1,144 @@
-"""Modelo de job e store em memória com TTL/expurgo.
+"""Jobs de transcrição — um diretório por job em data/jobs/{id}/.
 
-FIX M3: `warnings` (lista, não-fatal) separado de `error` (fatal) — cada campo
-tem uma única semântica.
-FIX M4/M5: store protegido por lock, com limpeza periódica (sem vazamento).
+Estrutura de cada job:
+    original.<ext>   arquivo enviado
+    audio.mp3|wav    áudio normalizado
+    segmentos.json   transcrição CRUA (nunca é alterada; as correções de nomes
+                     e grafia são aplicadas por cima, na hora de gerar os arquivos)
+    meta.json        estado + dados de revisão (participantes, nomes, correções)
+    transcricao.txt / .srt / .vtt / .json
+    ata.md           (opcional)
+    ata.pdf / transcricao.pdf   (gerados sob demanda, com cache)
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
 
+from . import config
 
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    DONE = "done"
-    FAILED = "failed"
+# RLock: update() chama save() com o lock já adquirido.
+_lock = threading.RLock()
+
+STATUS_QUEUED = "na_fila"
+STATUS_RUNNING = "processando"
+STATUS_DONE = "concluido"
+STATUS_ERROR = "erro"
+
+ATA_GERANDO = "gerando"
+ATA_PRONTA = "pronta"
+ATA_ERRO = "erro"
 
 
 @dataclass
 class Job:
     id: str
-    status: JobStatus = JobStatus.PENDING
-    filename: str = ""
-    transcript: str | None = None
-    ata: str | None = None
-    error: str | None = None                      # fatal (M3)
-    warnings: list[str] = field(default_factory=list)  # não-fatal (M3)
+    filename: str
+    engine: str
+    language: str                      # "pt", "en"... ou "" = auto
+    min_speakers: Optional[int]
+    max_speakers: Optional[int]
+    want_summary: bool
+    status: str = STATUS_QUEUED
+    phase: str = "Aguardando na fila"
+    error: str = ""
     created_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    duration: Optional[float] = None   # duração do áudio (s)
+    speakers: list[str] = field(default_factory=list)   # rótulos exibidos
+    timeline: list = field(default_factory=list)        # [[ini, fim, idx], ...]
+    outputs: list[str] = field(default_factory=list)    # ["txt","srt",...]
 
-    def touch(self) -> None:
-        self.updated_at = time.time()
+    # ---- revisão (nomes, grafia, dados do documento) ------------------------
+    participants: list[str] = field(default_factory=list)   # grafia correta
+    speaker_names: dict = field(default_factory=dict)       # "Falante 1" -> nome
+    corrections: list = field(default_factory=list)         # [{"de","para"}]
+    meeting: dict = field(default_factory=dict)             # title/date/place
+    ata_status: str = ""                                    # gerando|pronta|erro
+    ata_error: str = ""                                     # motivo, se ata_status=erro
+    email_log: list = field(default_factory=list)           # envios feitos
 
-    def public(self) -> dict:
-        return {
-            "id": self.id,
-            "status": self.status.value,
-            "filename": self.filename,
-            "has_transcript": self.transcript is not None,
-            "has_ata": self.ata is not None,
-            "error": self.error,
-            "warnings": self.warnings,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-        }
+    # ---- caminhos ----------------------------------------------------------
+    @property
+    def dir(self) -> Path:
+        return config.JOBS_DIR / self.id
+
+    def path(self, name: str) -> Path:
+        return self.dir / name
+
+    # ---- persistência ------------------------------------------------------
+    def save(self) -> None:
+        with _lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.path("meta.json.tmp")
+            tmp.write_text(
+                json.dumps(asdict(self), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp.replace(self.path("meta.json"))
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+        self.save()
 
 
-class JobStore:
-    def __init__(self, ttl_seconds: int = 7 * 86400):
-        self.ttl = ttl_seconds
-        self._jobs: dict[str, Job] = {}
-        self._lock = threading.Lock()
+def new_job(**kwargs) -> Job:
+    job = Job(id=uuid.uuid4().hex[:12], **kwargs)
+    job.save()
+    return job
 
-    def create(self, filename: str) -> Job:
-        job = Job(id=uuid.uuid4().hex, filename=filename)
-        with self._lock:
-            self._gc_locked()
-            self._jobs[job.id] = job
+
+def load(job_id: str) -> Optional[Job]:
+    meta = config.JOBS_DIR / job_id / "meta.json"
+    if not meta.exists():
+        return None
+    data = json.loads(meta.read_text(encoding="utf-8"))
+    return Job(**data)
+
+
+def update(job_id: str, mutate: Callable[[Job], None]) -> Optional[Job]:
+    """Carrega o job, aplica `mutate` e salva — tudo sob o lock.
+
+    Usado pelas rotas de revisão e pela geração da ata, que rodam em outras
+    threads: assim uma não sobrescreve o que a outra acabou de gravar.
+    """
+    with _lock:
+        job = load(job_id)
+        if job is None:
+            return None
+        mutate(job)
+        job.save()
         return job
 
-    def get(self, job_id: str) -> Job | None:
-        with self._lock:
-            return self._jobs.get(job_id)
 
-    def delete(self, job_id: str) -> bool:
-        with self._lock:
-            return self._jobs.pop(job_id, None) is not None
+def list_jobs() -> list[Job]:
+    jobs = []
+    for meta in config.JOBS_DIR.glob("*/meta.json"):
+        try:
+            jobs.append(Job(**json.loads(meta.read_text(encoding="utf-8"))))
+        except Exception:
+            continue
+    return sorted(jobs, key=lambda j: j.created_at, reverse=True)
 
-    def _gc_locked(self) -> None:
-        now = time.time()
-        dead = [k for k, j in self._jobs.items() if (now - j.updated_at) > self.ttl]
-        for k in dead:
-            self._jobs.pop(k, None)
+
+def recover_interrupted() -> list[str]:
+    """No startup: reenfileira o que ficou pendente de uma sessão anterior."""
+    requeued = []
+    for job in list_jobs():
+        if job.status == STATUS_RUNNING:
+            job.status = STATUS_QUEUED
+            job.set_phase("Reenfileirado após reinício do servidor")
+            requeued.append(job.id)
+        elif job.status == STATUS_QUEUED:
+            requeued.append(job.id)
+        elif job.ata_status == ATA_GERANDO:
+            # a ata ficou pela metade: marca como erro para o usuário refazer
+            job.ata_status = ATA_ERRO
+            job.save()
+    return requeued

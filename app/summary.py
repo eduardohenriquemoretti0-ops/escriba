@@ -1,86 +1,79 @@
-"""Geração de ata a partir da transcrição, via Claude.
+"""Ata automática da reunião (opcional).
 
-Decisões de arquitetura do escriba:
-- Auto-seleção de modelo por tamanho: Haiku (< threshold) → Sonnet (≥ threshold).
-- MAX_CHARS limita o input (margem segura da janela de contexto).
-- Lazy-init do client Anthropic: instanciado DENTRO da função, nunca no nível
-  de módulo — senão o `import` quebra sem ANTHROPIC_API_KEY mesmo sem usar.
+Se ANTHROPIC_API_KEY estiver no .env e o job pedir ata, o transcript vai para
+a API da Anthropic e volta um ata.md com resumo executivo, decisões, ações e
+pontos em aberto — o equivalente ao "AI Summary" do Otter.
+
+Os nomes dos participantes informados pelo cliente entram no pedido, para a
+ata sair com a grafia certa. Custo aproximado: uma reunião de 2 h (~40k tokens
+de entrada) fica na casa de poucos centavos de dólar com Sonnet. Ajuste
+ESCRIBA_SUMMARY_MODEL se quiser outro modelo.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Optional
 
-from .config import settings
-from .utils import log
+from . import config
 
-SYSTEM_PROMPT = (
-    "Você é um secretário de reuniões. A partir da transcrição fornecida, "
-    "gere uma ATA de reunião clara e objetiva em português brasileiro, em Markdown, com:\n"
-    "1. **Resumo executivo** (3-5 linhas).\n"
-    "2. **Pauta / tópicos discutidos** (bullets).\n"
-    "3. **Decisões tomadas**.\n"
-    "4. **Ações / próximos passos** (responsável quando identificável, prazo se citado).\n"
-    "5. **Pontos em aberto**.\n"
-    "Não invente nomes, números ou compromissos que não estejam na transcrição."
-)
+MAX_CHARS = 350_000  # margem de segurança p/ reuniões muito longas
+
+PROMPT = """A seguir está a transcrição de uma reunião, com falantes \
+identificados. Gere a ata em Markdown, em português, com exatamente estas \
+seções:
+
+# Ata da reunião
+
+## Resumo executivo
+(1 parágrafo objetivo)
+
+## Principais tópicos
+(um bullet por tópico, com 1-2 frases cada)
+
+## Decisões tomadas
+(somente decisões explícitas; se não houver, escreva "Nenhuma decisão \
+explícita registrada")
+
+## Ações e pendências
+(tabela: Ação | Responsável | Prazo — use "não definido" quando a transcrição \
+não disser)
+
+## Pontos em aberto
+(dúvidas ou temas adiados)
+
+Seja fiel à transcrição: não invente responsáveis, prazos nem decisões. \
+Quando os falantes se identificarem pelo nome, use os nomes em vez de \
+"Falante N".
+{participantes}
+TRANSCRIÇÃO:
+"""
 
 
-class SummaryUnavailableError(Exception):
-    """Sumarização indisponível (desligada, sem chave, ou SDK ausente)."""
-
-
-@dataclass
-class AtaResult:
-    markdown: str
-    model: str
-    warnings: list[str]
-
-
-def _pick_model(n_chars: int) -> str:
-    """Auto-seleção por tamanho (decisão escriba)."""
-    if n_chars >= settings.summary_threshold_chars:
-        return settings.model_large
-    return settings.model_small
-
-
-def generate_ata(transcript: str) -> AtaResult:
-    """Gera a ata. Lazy-init do client; trunca com AVISO (não silenciosamente)."""
-    if not settings.summary_enabled:
-        raise SummaryUnavailableError(
-            "Sumarização desligada (defina ESCRIBA_SUMMARY_ENABLED=true)."
+def build_prompt(transcript_txt: str,
+                 participants: Optional[list[str]] = None) -> str:
+    bloco = ""
+    if participants:
+        lista = "\n".join(f"- {p}" for p in participants)
+        bloco = (
+            "\nNomes dos participantes, com a grafia correta (use exatamente "
+            "esta grafia sempre que citar essas pessoas):\n" + lista + "\n"
         )
-    try:
-        import anthropic
-    except Exception as e:
-        raise SummaryUnavailableError("SDK anthropic não instalado.") from e
+    return PROMPT.format(participantes=bloco) + transcript_txt[:MAX_CHARS]
 
-    warnings: list[str] = []
-    text = transcript
-    if len(text) > settings.max_chars:
-        warnings.append(
-            f"Transcrição ({len(text)} chars) excede MAX_CHARS "
-            f"({settings.max_chars}); truncada para a ata."
-        )
-        log.warning(warnings[-1])
-        text = text[: settings.max_chars]
 
-    model = _pick_model(len(text))
-    log.info("Gerando ata com modelo=%s (%d chars).", model, len(text))
+def generate_ata(transcript_txt: str,
+                 participants: Optional[list[str]] = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY não configurada no .env.")
 
-    try:
-        client = anthropic.Anthropic()  # lazy-init — resolve credenciais do ambiente
-        # Streaming evita timeout em entradas/saídas longas.
-        with client.messages.stream(
-            model=model,
-            max_tokens=16000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": f"Transcrição:\n\n{text}"}],
-        ) as stream:
-            message = stream.get_final_message()
-    except anthropic.AuthenticationError as e:
-        raise SummaryUnavailableError("ANTHROPIC_API_KEY inválida/ausente.") from e
-    except Exception as e:  # erro de API → reporta, não trava a transcrição
-        raise SummaryUnavailableError(f"Falha ao chamar a API: {e}") from e
+    import anthropic  # import tardio
 
-    md = "".join(b.text for b in message.content if b.type == "text").strip()
-    return AtaResult(markdown=md, model=model, warnings=warnings)
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    message = client.messages.create(
+        model=config.SUMMARY_MODEL,
+        max_tokens=4000,
+        messages=[{"role": "user",
+                   "content": build_prompt(transcript_txt, participants)}],
+    )
+    return "".join(
+        block.text for block in message.content if block.type == "text"
+    )

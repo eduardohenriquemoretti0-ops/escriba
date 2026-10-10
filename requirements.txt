@@ -1,18 +1,12 @@
-# escriba — transcrição de áudio + geração de ata
-# Núcleo
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-python-dotenv==1.0.1
-python-multipart==0.0.20
+# Núcleo do Escriba (engine AssemblyAI — funciona em qualquer máquina)
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+python-dotenv>=1.0
+assemblyai>=0.30
+anthropic>=0.40        # opcional: ata automática da reunião
 
-# Transcrição local (motor padrão, grátis)
-faster-whisper==1.2.1
-requests==2.32.3  # dependência transitiva do faster-whisper (não puxada automática)
-av==13.1.0       # PIN CRÍTICO: PyAV >=14 remove 'metadata_errors' e quebra o faster-whisper
-
-# Sumarização / ata (opcional — só se usar engine de IA)
-anthropic==0.69.0
-
-# Dev / testes
-pytest==8.3.4
-httpx==0.28.1
+# Novidades da v2 (PDFs assinados, assinatura, e-mail)
+weasyprint>=62         # PDF da ata e da transcrição (precisa de libs do sistema — ver README)
+markdown>=3.5          # ata (Markdown) -> HTML -> PDF
+pillow>=10.0           # tratamento da imagem da assinatura

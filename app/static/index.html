@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escriba · transcrição de reuniões</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --tinta:#0D1A21;        /* fundo — petróleo profundo */
+  --painel:#13232D;
+  --painel-2:#182B37;
+  --linha:#24404C;
+  --papel:#EAF0ED;
+  --cinza:#87A0A9;
+  --sinal:#FFB454;        /* âmbar de VU meter */
+  --sinal-forte:#FFC97E;
+  --erro:#F08A7E;
+  --ok:#8FD68A;
+  --f1:#FFB454; --f2:#5BC8D6; --f3:#E58BB6; --f4:#8FD68A;
+  --f5:#B39DE8; --f6:#E8A08A; --f7:#7FB4E8; --f8:#D6C95B;
+  --raio:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:dark}
+body{
+  background:var(--tinta);
+  color:var(--papel);
+  font-family:"Archivo",system-ui,sans-serif;
+  font-size:15px;line-height:1.55;
+  min-height:100vh;
+}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+a{color:var(--sinal)}
+button{font:inherit;cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.5}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--sinal);outline-offset:2px;border-radius:4px}
+
+.wrap{max-width:880px;margin:0 auto;padding:0 20px 96px}
+
+/* ---------- cabeçalho ---------- */
+header{display:flex;align-items:baseline;gap:14px;padding:34px 0 6px;flex-wrap:wrap}
+.logo{
+  font-variation-settings:"wdth" 118,"wght" 900;
+  font-size:clamp(30px,5vw,40px);
+  letter-spacing:.04em;text-transform:uppercase;
+}
+.logo b{color:var(--sinal);font:inherit}
+.tag{color:var(--cinza);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+header .perfil-btn{margin-left:auto}
+.sub{color:var(--cinza);max-width:60ch;margin-bottom:22px}
+
+.aviso-assinatura{
+  display:none;margin:0 0 20px;padding:10px 14px;font-size:13.5px;
+  border:1px solid var(--sinal);border-radius:var(--raio);
+  background:rgba(255,180,84,.07);color:var(--papel);
+}
+.aviso-assinatura.ativo{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.aviso-assinatura span{flex:1;min-width:220px}
+
+/* ---------- botões ---------- */
+.btn{
+  display:inline-block;text-decoration:none;font-size:12.5px;
+  border:1px solid var(--linha);border-radius:6px;
+  background:var(--painel-2);color:var(--papel);
+  padding:6px 12px;transition:border-color .12s;
+}
+.btn:hover:not(:disabled){border-color:var(--sinal)}
+.btn.principal{border-color:var(--sinal);color:var(--sinal-forte)}
+.btn.cheio{background:var(--sinal);border-color:var(--sinal);color:#1A1204;font-weight:600}
+.btn.cheio:hover:not(:disabled){background:var(--sinal-forte)}
+.btn.perigo:hover:not(:disabled){border-color:var(--erro);color:var(--erro)}
+
+/* ---------- zona de envio ---------- */
+.drop{
+  position:relative;
+  border:1.5px dashed var(--linha);
+  border-radius:var(--raio);
+  background:linear-gradient(180deg,var(--painel) 0%,var(--painel-2) 100%);
+  padding:34px 26px 26px;
+  text-align:center;
+  transition:border-color .15s,background .15s;
+}
+.drop.arrastando{border-color:var(--sinal);background:var(--painel-2)}
+.drop .onda{display:block;margin:0 auto 12px;opacity:.9}
+.drop h2{font-variation-settings:"wght" 700;font-size:19px;margin-bottom:4px}
+.drop p{color:var(--cinza);font-size:13.5px}
+.drop input[type=file]{
+  position:absolute;inset:0;width:100%;height:100%;
+  opacity:0;cursor:pointer;
+}
+.formatos{margin-top:10px;font-size:12px;color:var(--cinza)}
+.formatos code{
+  font-family:"JetBrains Mono",monospace;font-size:11px;
+  background:var(--tinta);border:1px solid var(--linha);
+  border-radius:4px;padding:1px 5px;margin:0 1px;
+}
+
+/* ---------- opções ---------- */
+.opcoes{
+  display:flex;gap:14px;flex-wrap:wrap;align-items:end;
+  background:var(--painel);
+  border:1px solid var(--linha);border-top:none;
+  border-radius:0 0 var(--raio) var(--raio);
+  margin:0 12px;padding:16px 18px;
+}
+.campo{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--cinza)}
+.campo select,.campo input[type=number],.campo input[type=text],
+.campo input[type=email],.campo textarea{
+  background:var(--tinta);color:var(--papel);
+  border:1px solid var(--linha);border-radius:6px;
+  padding:7px 10px;font:inherit;font-size:13.5px;min-width:120px;
+}
+.campo input[type=number]{width:88px;min-width:0}
+.campo textarea{resize:vertical;line-height:1.45}
+.campo.larg{flex:1 1 220px}
+.campo.larg input,.campo.larg textarea{width:100%}
+.chk{display:flex;align-items:center;gap:8px;color:var(--papel);font-size:13.5px;padding-bottom:8px}
+.chk input{accent-color:var(--sinal);width:15px;height:15px}
+.dica{flex-basis:100%;font-size:12px;color:var(--cinza)}
+
+/* ---------- envio em andamento ---------- */
+.enviando{margin:18px 12px 0;display:none}
+.enviando.ativo{display:block}
+.barra{height:6px;border-radius:3px;background:var(--painel-2);overflow:hidden;border:1px solid var(--linha)}
+.barra i{display:block;height:100%;background:var(--sinal);width:0%;transition:width .2s}
+.enviando span{font-size:12.5px;color:var(--cinza)}
+
+/* ---------- lista de jobs ---------- */
+.secao{
+  margin-top:44px;display:flex;align-items:baseline;
+  justify-content:space-between;border-bottom:1px solid var(--linha);
+  padding-bottom:8px;
+}
+.secao h2{
+  font-variation-settings:"wdth" 110,"wght" 800;
+  font-size:14px;letter-spacing:.1em;text-transform:uppercase;
+}
+.secao span{font-size:12px;color:var(--cinza)}
+.vazio{color:var(--cinza);padding:26px 4px;font-size:14px}
+
+.card{
+  background:var(--painel);border:1px solid var(--linha);
+  border-radius:var(--raio);padding:16px 18px;margin-top:14px;
+}
+.card .topo{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}
+.card .nome{font-variation-settings:"wght" 650;font-size:15.5px;word-break:break-all}
+.card .meta{font-size:12px;color:var(--cinza)}
+.badge{
+  font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  border-radius:20px;padding:3px 10px;border:1px solid var(--linha);
+  color:var(--cinza);white-space:nowrap;
+}
+.badge.processando{color:var(--sinal);border-color:var(--sinal)}
+.badge.concluido{color:var(--ok);border-color:var(--ok)}
+.badge.erro{color:var(--erro);border-color:var(--erro)}
+@media (prefers-reduced-motion:no-preference){
+  .badge.processando{animation:pulsa 1.6s ease-in-out infinite}
+  @keyframes pulsa{50%{opacity:.55}}
+}
+.fase{margin-top:8px;font-size:13px;color:var(--cinza)}
+.fase b{color:var(--papel);font-weight:500}
+.msg-erro{margin-top:8px;font-size:13px;color:var(--erro);white-space:pre-wrap}
+
+/* timeline de falantes — a assinatura do app */
+.tl{margin-top:14px}
+.tl .trilha{
+  position:relative;height:26px;border-radius:6px;
+  background:var(--tinta);border:1px solid var(--linha);overflow:hidden;
+}
+.tl .trilha i{position:absolute;top:0;height:100%;min-width:2px}
+.tl .regua{display:flex;justify-content:space-between;font-size:10.5px;color:var(--cinza);margin-top:4px}
+.legenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:12.5px;color:var(--cinza)}
+.legenda i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:0}
+
+.acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.downloads{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.downloads .rot{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--cinza);margin-right:2px}
+.downloads .excluir{color:var(--cinza);background:none;margin-left:auto}
+
+footer{margin-top:56px;font-size:12px;color:var(--cinza)}
+
+/* ---------- caixas de diálogo ---------- */
+dialog{
+  background:var(--painel);color:var(--papel);
+  border:1px solid var(--linha);border-radius:12px;padding:0;
+  width:min(700px,calc(100vw - 24px));
+  max-height:calc(100vh - 28px);
+  margin:auto;
+}
+dialog[open]{display:flex;flex-direction:column}
+dialog::backdrop{background:rgba(5,12,16,.76)}
+.dlg-cab{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:18px 22px 12px;border-bottom:1px solid var(--linha);
+}
+.dlg-cab h2{font-variation-settings:"wdth" 108,"wght" 800;font-size:16px;letter-spacing:.04em}
+.dlg-cab .x{background:none;border:none;color:var(--cinza);font-size:22px;line-height:1;padding:0 4px}
+.dlg-cab .x:hover{color:var(--papel)}
+.dlg-corpo{padding:16px 22px 8px;overflow:auto;flex:1}
+.dlg-rod{
+  display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap;
+  padding:12px 22px;border-top:1px solid var(--linha);
+}
+.dlg-rod .estado{margin-right:auto;font-size:12.5px;color:var(--cinza)}
+.dlg-rod .estado.ok{color:var(--ok)}
+.dlg-rod .estado.erro{color:var(--erro)}
+.bloco{margin-bottom:20px}
+.bloco > h3{
+  font-variation-settings:"wdth" 108,"wght" 750;font-size:12px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--sinal);margin-bottom:4px;
+}
+.bloco p.exp{font-size:12.5px;color:var(--cinza);margin-bottom:10px}
+.linha-campos{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.nota-legal{
+  font-size:12px;color:var(--cinza);border-left:2px solid var(--linha);
+  padding:2px 0 2px 10px;margin-top:10px;
+}
+
+/* falantes */
+.spk{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,230px);gap:6px 14px;
+  padding:10px 0;border-bottom:1px solid var(--linha);align-items:start;
+}
+.spk:last-child{border-bottom:none}
+.spk .rot{font-size:13px;font-variation-settings:"wght" 650}
+.spk .rot i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px}
+.spk .qtd{font-size:11.5px;color:var(--cinza);margin-left:6px;font-weight:400}
+.spk q{display:block;font-size:12px;color:var(--cinza);font-style:italic;margin-top:3px;quotes:"“" "”"}
+.spk input{
+  background:var(--tinta);color:var(--papel);border:1px solid var(--linha);
+  border-radius:6px;padding:7px 10px;font:inherit;font-size:13.5px;width:100%;
+  grid-row:1 / span 3;grid-column:2;
+}
+@media (max-width:560px){
+  .spk{grid-template-columns:1fr}
+  .spk input{grid-row:auto;grid-column:auto}
+}
+
+/* correções */
+.corr{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;margin-bottom:6px}
+.corr input{
+  background:var(--tinta);color:var(--papel);border:1px solid var(--linha);
+  border-radius:6px;padding:6px 9px;font:inherit;font-size:13px;min-width:0;width:100%;
+}
+.corr .seta{color:var(--cinza)}
+.corr button{background:none;border:none;color:var(--cinza);font-size:18px;padding:0 6px}
+.corr button:hover{color:var(--erro)}
+.sug{display:flex;gap:10px;align-items:center;padding:6px 0;font-size:13.5px}
+.sug input{accent-color:var(--sinal);width:15px;height:15px}
+.sug small{color:var(--cinza);font-size:11.5px}
+.sug b{font-weight:600}
+
+/* e-mail */
+.anexos{display:flex;flex-direction:column;gap:6px}
+.historico{font-size:12px;color:var(--cinza);margin-top:6px}
+.historico li{margin-left:16px}
+
+/* assinatura */
+.abas{display:flex;gap:6px;margin-bottom:10px}
+.aba{
+  background:var(--painel-2);border:1px solid var(--linha);color:var(--cinza);
+  border-radius:6px;padding:5px 12px;font-size:12.5px;
+}
+.aba[aria-selected=true]{border-color:var(--sinal);color:var(--sinal-forte)}
+.pad-wrap{position:relative}
+#padCanvas{
+  display:block;width:100%;height:170px;background:#F4F1E8;border-radius:8px;
+  touch-action:none;cursor:crosshair;
+}
+.pad-wrap .linha-base{
+  position:absolute;left:5%;right:5%;bottom:38px;border-top:1px dashed #B9B39F;pointer-events:none;
+}
+.pad-wrap .dica-pad{
+  position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:11.5px;color:#8A8470;pointer-events:none;
+}
+.ass-atual{
+  background:#F4F1E8;border-radius:8px;padding:8px;display:flex;justify-content:center;
+  align-items:center;min-height:90px;margin-bottom:10px;
+}
+.ass-atual img{max-height:90px;max-width:100%}
+.pad-acoes{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+
+/* aviso flutuante */
+#toast{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  max-width:min(560px,calc(100vw - 32px));z-index:9999;
+  background:var(--painel-2);border:1px solid var(--linha);border-radius:8px;
+  padding:10px 16px;font-size:13.5px;display:none;
+}
+#toast.ativo{display:block}
+#toast.erro{border-color:var(--erro);color:var(--erro)}
+#toast.ok{border-color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">Escri<b>ba</b></div>
+    <div class="tag">transcrição de reuniões · self-hosted</div>
+    <button class="btn perfil-btn" id="btnPerfil" type="button">Perfil e assinatura</button>
+  </header>
+  <p class="sub">Envie a gravação da reunião (áudio ou vídeo, Zoom incluso).
+  O Escriba extrai o áudio, transcreve, identifica quem falou o quê e
+  entrega TXT, SRT, VTT, JSON e PDF — e a ata, se você quiser. Depois é só
+  informar os nomes dos participantes, assinar e enviar por e-mail.</p>
+
+  <div class="aviso-assinatura" id="avisoAss" role="status">
+    <span>Sua assinatura ainda não foi cadastrada: os PDFs da ata e da
+    transcrição saem sem ela.</span>
+    <button class="btn principal" type="button" id="btnAvisoAss">Cadastrar agora</button>
+  </div>
+
+  <div class="drop" id="drop">
+    <svg class="onda" width="120" height="30" viewBox="0 0 120 30" aria-hidden="true">
+      <g fill="var(--sinal)">
+        <rect x="2"  y="12" width="3" height="6"  rx="1.5"/>
+        <rect x="10" y="8"  width="3" height="14" rx="1.5"/>
+        <rect x="18" y="4"  width="3" height="22" rx="1.5"/>
+        <rect x="26" y="10" width="3" height="10" rx="1.5"/>
+        <rect x="34" y="6"  width="3" height="18" rx="1.5"/>
+        <rect x="42" y="12" width="3" height="6"  rx="1.5"/>
+        <rect x="50" y="2"  width="3" height="26" rx="1.5"/>
+        <rect x="58" y="9"  width="3" height="12" rx="1.5"/>
+        <rect x="66" y="5"  width="3" height="20" rx="1.5"/>
+        <rect x="74" y="11" width="3" height="8"  rx="1.5"/>
+        <rect x="82" y="7"  width="3" height="16" rx="1.5"/>
+        <rect x="90" y="12" width="3" height="6"  rx="1.5"/>
+        <rect x="98" y="9"  width="3" height="12" rx="1.5"/>
+        <rect x="106" y="13" width="3" height="4" rx="1.5"/>
+        <rect x="114" y="11" width="3" height="8" rx="1.5"/>
+      </g>
+    </svg>
+    <h2>Solte o arquivo da reunião aqui</h2>
+    <p>ou clique para escolher — a transcrição começa em seguida</p>
+    <p class="formatos">
+      <code>.m4a</code><code>.mp3</code><code>.wav</code><code>.wma</code><code>.m4p</code><code>.aac</code>
+      <code>.mp4</code><code>.mov</code><code>.avi</code><code>.mpeg</code><code>.wmv</code><code>.mkv</code><code>.3gp</code>
+    </p>
+    <input type="file" id="arquivo" aria-label="Escolher arquivo de áudio ou vídeo"
+      accept=".m4a,.mp3,.wav,.wma,.m4p,.aac,.ogg,.flac,.mp4,.mov,.avi,.mpeg,.mpg,.wmv,.mkv,.3gp,.webm">
+  </div>
+
+  <div class="opcoes">
+    <label class="campo">Motor
+      <select id="engine">
+        <option value="assemblyai">AssemblyAI · nuvem (sem GPU)</option>
+        <option value="whisperx">WhisperX · 100% local (GPU)</option>
+      </select>
+    </label>
+    <label class="campo">Idioma
+      <select id="idioma">
+        <option value="pt" selected>Português</option>
+        <option value="en">Inglês</option>
+        <option value="es">Espanhol</option>
+        <option value="auto">Detectar</option>
+      </select>
+    </label>
+    <label class="campo">Nº de participantes (opcional)
+      <input type="number" id="falantes" min="1" max="30" placeholder="ex.: 5">
+    </label>
+    <label class="chk"><input type="checkbox" id="ata">Gerar ata da reunião (IA)</label>
+    <label class="campo larg" style="flex-basis:100%">Nomes dos participantes (opcional)
+      <textarea id="nomesUpload" rows="2"
+        placeholder="Um por linha, com a grafia correta. Ex.: Rosilaine Andrade"></textarea>
+    </label>
+    <p class="dica">Informar o nº de participantes melhora a separação de vozes.
+    Os nomes ajudam o motor a acertar a grafia (você também pode informá-los
+    depois, em “Revisar nomes”). A ata usa a API da Anthropic e exige chave no
+    <span class="mono">.env</span>.</p>
+  </div>
+
+  <div class="enviando" id="enviando">
+    <div class="barra"><i id="barraFill"></i></div>
+    <span id="enviandoTxt">Enviando…</span>
+  </div>
+
+  <div class="secao">
+    <h2>Transcrições</h2>
+    <span id="contagem"></span>
+  </div>
+  <div id="lista"><p class="vazio">Nenhuma transcrição ainda. Envie a primeira gravação.</p></div>
+
+  <footer>Escriba roda na sua máquina — os arquivos ficam em
+  <span class="mono">data/jobs/</span>. Documentação da API em
+  <a href="/api/docs">/api/docs</a>.</footer>
+</div>
+
+<!-- ======================= PERFIL E ASSINATURA ======================= -->
+<dialog id="dlgPerfil" aria-labelledby="tPerfil">
+  <div class="dlg-cab">
+    <h2 id="tPerfil">Perfil e assinatura</h2>
+    <button class="x" type="button" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="dlg-corpo">
+    <div class="bloco">
+      <h3>Quem assina como responsável</h3>
+      <p class="exp">Estes dados saem no cabeçalho e no bloco de assinaturas da
+      ata e da transcrição.</p>
+      <div class="linha-campos">
+        <label class="campo larg">Nome completo
+          <input type="text" id="pfNome" maxlength="120" autocomplete="name"></label>
+        <label class="campo larg">Cargo / função
+          <input type="text" id="pfCargo" maxlength="120"></label>
+      </div>
+      <div class="linha-campos">
+        <label class="campo larg">Empresa / organização
+          <input type="text" id="pfOrg" maxlength="120" autocomplete="organization"></label>
+        <label class="campo larg">E-mail (respostas dos envios chegam aqui)
+          <input type="email" id="pfEmail" maxlength="120" autocomplete="email"></label>
+      </div>
+    </div>
+
+    <div class="bloco">
+      <h3>Assinatura</h3>
+      <div id="assAtualBox" hidden>
+        <p class="exp">Assinatura cadastrada:</p>
+        <div class="ass-atual"><img id="assAtual" alt="Assinatura cadastrada"></div>
+        <div class="pad-acoes" style="margin:0 0 14px">
+          <button class="btn perigo" type="button" id="btnRemoverAss">Remover assinatura</button>
+          <span class="dica" style="flex:1">Para trocar, desenhe ou envie uma nova abaixo e salve.</span>
+        </div>
+      </div>
+
+      <div class="abas" role="tablist">
+        <button class="aba" type="button" role="tab" id="abaDesenho" aria-selected="true">Desenhar</button>
+        <button class="aba" type="button" role="tab" id="abaArquivo" aria-selected="false">Enviar imagem</button>
+      </div>
+
+      <div id="painelDesenho">
+        <div class="pad-wrap">
+          <canvas id="padCanvas" aria-label="Área para desenhar a assinatura com mouse, caneta ou dedo"></canvas>
+          <div class="linha-base"></div>
+          <div class="dica-pad">assine acima da linha</div>
+        </div>
+        <div class="pad-acoes">
+          <button class="btn" type="button" id="btnLimparPad">Limpar</button>
+          <span class="dica" style="flex:1">Funciona com mouse, caneta ou dedo.</span>
+        </div>
+      </div>
+
+      <div id="painelArquivo" hidden>
+        <label class="campo">Foto ou imagem da assinatura (PNG, JPG ou WEBP, até 5 MB)
+          <input type="file" id="assArquivo" accept="image/png,image/jpeg,image/webp">
+        </label>
+        <div class="ass-atual" id="assPrevBox" style="margin-top:10px" hidden>
+          <img id="assPrev" alt="Pré-visualização">
+        </div>
+        <p class="dica" style="margin-top:8px">Assine num papel branco, com caneta
+        escura, e fotografe de frente. O fundo é removido automaticamente.</p>
+      </div>
+
+      <p class="nota-legal">Esta é a <b>imagem</b> da sua assinatura, aplicada ao
+      documento — não é assinatura digital certificada (ICP-Brasil / gov.br).
+      Serve para documentos internos e para colher as demais assinaturas;
+      se a ata precisar de registro ou certificação, use a assinatura digital
+      apropriada.</p>
+    </div>
+  </div>
+  <div class="dlg-rod">
+    <span class="estado" id="pfEstado" role="status" aria-live="polite"></span>
+    <button class="btn" type="button" data-fechar>Cancelar</button>
+    <button class="btn cheio" type="button" id="btnSalvarPerfil">Salvar</button>
+  </div>
+</dialog>
+
+<!-- ======================= REVISÃO DE NOMES ======================= -->
+<dialog id="dlgRev" aria-labelledby="tRev">
+  <div class="dlg-cab">
+    <h2 id="tRev">Revisar nomes e grafia</h2>
+    <button class="x" type="button" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="dlg-corpo">
+    <div class="bloco">
+      <h3>1 · Participantes</h3>
+      <p class="exp">Escreva o nome de cada participante com a grafia correta,
+      um por linha. Eles aparecem na ata, nos PDFs (linhas de assinatura) e
+      alimentam as sugestões de correção.</p>
+      <label class="campo larg">
+        <textarea id="revPart" rows="4" aria-label="Participantes, um por linha"
+          placeholder="Rosilaine Andrade&#10;Eduardo Moretti"></textarea>
+      </label>
+    </div>
+
+    <div class="bloco">
+      <h3>2 · Quem é quem</h3>
+      <p class="exp">O Escriba separou as vozes como “Falante 1, 2…”. Diga quem
+      é cada um; o nome substitui o rótulo em todos os arquivos.</p>
+      <div id="revFalantes"></div>
+      <datalist id="listaPart"></datalist>
+    </div>
+
+    <div class="bloco">
+      <h3>3 · Grafia no texto</h3>
+      <div id="revSugBox" hidden>
+        <p class="exp">Encontrei palavras parecidas com os nomes que você
+        informou. Marque as que devem ser trocadas:</p>
+        <div id="revSug"></div>
+      </div>
+      <p class="exp" id="revCorrExp">Correções aplicadas (troca palavra inteira,
+      em toda a transcrição). Útil para nomes que o reconhecimento escreveu
+      errado:</p>
+      <div id="revCorr"></div>
+      <button class="btn" type="button" id="btnAddCorr">+ Adicionar correção</button>
+    </div>
+
+    <div class="bloco">
+      <h3>4 · Dados da reunião</h3>
+      <div class="linha-campos">
+        <label class="campo larg" style="flex-basis:100%">Título
+          <input type="text" id="revTitulo" maxlength="160"></label>
+      </div>
+      <div class="linha-campos">
+        <label class="campo larg">Data
+          <input type="text" id="revData" maxlength="160" placeholder="ex.: 15/10/2026"></label>
+        <label class="campo larg">Local
+          <input type="text" id="revLocal" maxlength="160" placeholder="ex.: São Paulo"></label>
+      </div>
+    </div>
+  </div>
+  <div class="dlg-rod">
+    <span class="estado" id="revEstado" role="status" aria-live="polite"></span>
+    <button class="btn" type="button" data-fechar>Fechar</button>
+    <button class="btn cheio" type="button" id="btnSalvarRev">Salvar e aplicar</button>
+  </div>
+</dialog>
+
+<!-- ======================= E-MAIL ======================= -->
+<dialog id="dlgEmail" aria-labelledby="tEmail">
+  <div class="dlg-cab">
+    <h2 id="tEmail">Enviar por e-mail</h2>
+    <button class="x" type="button" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="dlg-corpo">
+    <p class="aviso-assinatura ativo" id="emNaoConfig" hidden style="margin-bottom:16px">
+      <span>O envio de e-mail ainda não está configurado. Preencha
+      <span class="mono">SMTP_HOST</span>, <span class="mono">SMTP_USER</span>,
+      <span class="mono">SMTP_PASSWORD</span> e <span class="mono">SMTP_FROM</span>
+      no arquivo <span class="mono">.env</span> e reinicie o Escriba.</span>
+    </p>
+    <div class="bloco">
+      <div class="linha-campos">
+        <label class="campo larg" style="flex-basis:100%">Para (separe vários por vírgula)
+          <input type="text" id="emPara" autocomplete="off" placeholder="nome@empresa.com, outro@empresa.com"></label>
+      </div>
+      <div class="linha-campos">
+        <label class="campo larg" style="flex-basis:100%">Cc (opcional)
+          <input type="text" id="emCc" autocomplete="off"></label>
+      </div>
+      <div class="linha-campos">
+        <label class="campo larg" style="flex-basis:100%">Assunto
+          <input type="text" id="emAssunto" maxlength="200"></label>
+      </div>
+      <div class="linha-campos">
+        <label class="campo larg" style="flex-basis:100%">Mensagem
+          <textarea id="emMsg" rows="6"></textarea></label>
+      </div>
+    </div>
+    <div class="bloco">
+      <h3>Anexos</h3>
+      <div class="anexos" id="emAnexos"></div>
+      <p class="nota-legal">Os PDFs saem com a sua assinatura. As linhas dos
+      participantes ficam em branco, para eles assinarem depois.</p>
+      <p class="historico" id="emRemetente"></p>
+      <ul class="historico" id="emHist"></ul>
+    </div>
+  </div>
+  <div class="dlg-rod">
+    <span class="estado" id="emEstado" role="status" aria-live="polite"></span>
+    <button class="btn" type="button" data-fechar>Fechar</button>
+    <button class="btn cheio" type="button" id="btnEnviarEmail">Enviar</button>
+  </div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const CORES = ["--f1","--f2","--f3","--f4","--f5","--f6","--f7","--f8"];
+const $ = s => document.querySelector(s);
+const drop = $("#drop");
+const inputArquivo = $("#arquivo");
+const lista = $("#lista");
+let temAtivos = false;
+let jobsCache = [];
+let perfil = { nome:"", cargo:"", organizacao:"", email:"", tem_assinatura:false };
+let cfg = { ata_disponivel:false, email_configurado:false };
+
+/* ---------- utilidades ---------- */
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hms = s => {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = String(Math.floor(s/3600)).padStart(2,"0");
+  const m = String(Math.floor(s%3600/60)).padStart(2,"0");
+  return `${h}:${m}:${String(s%60).padStart(2,"0")}`;
+};
+const rotulo = {na_fila:"Na fila", processando:"Processando",
+                concluido:"Concluído", erro:"Erro"};
+
+let toastTimer = null;
+function avisar(msg, tipo){
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "ativo " + (tipo || "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ""; }, tipo === "erro" ? 7000 : 3500);
+}
+async function erroMsg(resp, padrao){
+  try {
+    const j = await resp.json();
+    if (typeof j.detail === "string") return j.detail;
+    if (Array.isArray(j.detail)) return "Dados inválidos — confira os campos.";
+  } catch(_) {}
+  return padrao || `Falha (${resp.status}).`;
+}
+function lerLocal(chave){ try { return localStorage.getItem(chave) || ""; } catch(_) { return ""; } }
+function gravarLocal(chave, v){ try { localStorage.setItem(chave, v); } catch(_) {} }
+const jsonOpts = (metodo, corpo) => ({
+  method: metodo, headers: {"Content-Type":"application/json"}, body: JSON.stringify(corpo)
+});
+
+/* ---------- caixas de diálogo ---------- */
+document.querySelectorAll("dialog").forEach(d => {
+  d.querySelectorAll("[data-fechar]").forEach(b => b.addEventListener("click", () => d.close()));
+  d.addEventListener("click", e => { if (e.target === d) d.close(); });   // clique no fundo
+});
+
+/* ---------- upload ---------- */
+["dragover","dragenter"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("arrastando"); }));
+["dragleave","drop"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("arrastando"); }));
+drop.addEventListener("drop", e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) enviar(f);
+});
+inputArquivo.addEventListener("change", () => {
+  if (inputArquivo.files[0]) enviar(inputArquivo.files[0]);
+  inputArquivo.value = "";
+});
+
+function enviar(file){
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("engine", $("#engine").value);
+  fd.append("language", $("#idioma").value);
+  const n = $("#falantes").value;
+  if (n) { fd.append("min_speakers", n); fd.append("max_speakers", n); }
+  fd.append("want_summary", $("#ata").checked);
+  fd.append("participants", $("#nomesUpload").value);
+
+  const box = $("#enviando");
+  const fill = $("#barraFill");
+  const txt = $("#enviandoTxt");
+  box.classList.add("ativo"); fill.style.width = "0%";
+  txt.textContent = `Enviando ${file.name}…`;
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/jobs");
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable)
+      fill.style.width = (e.loaded / e.total * 100).toFixed(1) + "%";
+  };
+  xhr.onload = () => {
+    box.classList.remove("ativo");
+    if (xhr.status >= 200 && xhr.status < 300) { atualizar(); }
+    else {
+      let msg = "Falha no envio.";
+      try { msg = JSON.parse(xhr.responseText).detail || msg; } catch(_){}
+      avisar(msg, "erro");
+    }
+  };
+  xhr.onerror = () => { box.classList.remove("ativo"); avisar("Falha de rede no envio.", "erro"); };
+  xhr.send(fd);
+}
+
+/* ---------- cards ---------- */
+function timelineHTML(job){
+  if (!job.timeline || !job.timeline.length || !job.duration) return "";
+  const blocos = job.timeline.map(([ini, fim, idx]) => {
+    const left = (ini / job.duration * 100).toFixed(2);
+    const w = Math.max(0.2, (fim - ini) / job.duration * 100).toFixed(2);
+    const cor = `var(${CORES[idx % CORES.length]})`;
+    return `<i style="left:${left}%;width:${w}%;background:${cor}"
+              title="${esc(job.speakers[idx] || "")} · ${hms(ini)}"></i>`;
+  }).join("");
+  const legenda = (job.speakers || []).map((nome, i) =>
+    `<span><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(nome)}</span>`
+  ).join("");
+  return `<div class="tl">
+      <div class="trilha">${blocos}</div>
+      <div class="regua"><span class="mono">00:00:00</span>
+        <span class="mono">${hms(job.duration)}</span></div>
+      <div class="legenda">${legenda}</div>
+    </div>`;
+}
+
+const NOMES_ARQ = {
+  txt:"TXT", srt:"SRT", vtt:"VTT", json:"JSON", ata:"Ata (MD)",
+  transcricao_pdf:"Transcrição PDF", ata_pdf:"Ata PDF"
+};
+const ORDEM_ARQ = ["txt","transcricao_pdf","ata_pdf","ata","srt","vtt","json"];
+const DESTAQUE = new Set(["txt","transcricao_pdf","ata_pdf"]);
+
+function ataHTML(job){
+  if (job.ata_status === "gerando")
+    return `<p class="fase">Gerando a ata… <b>(IA)</b></p>`;
+  let html = "";
+  if (job.ata_status === "erro" && job.ata_error)
+    html += `<p class="msg-erro">${esc(job.ata_error)}</p>`;
+  return html;
+}
+
+function acoesHTML(job){
+  if (job.status !== "concluido") return "";
+  const temAta = (job.outputs || []).includes("ata");
+  const gerando = job.ata_status === "gerando";
+  let b = `<button class="btn principal" type="button" data-acao="revisar" data-id="${job.id}">Revisar nomes</button>
+           <button class="btn principal" type="button" data-acao="email" data-id="${job.id}">Enviar por e-mail</button>`;
+  if (!gerando && cfg.ata_disponivel)
+    b += `<button class="btn" type="button" data-acao="ata" data-id="${job.id}">${temAta ? "Refazer a ata" : "Gerar ata (IA)"}</button>`;
+  return `<div class="acoes">${b}</div>`;
+}
+
+function downloadsHTML(job){
+  if (job.status !== "concluido") return "";
+  const disp = job.outputs || [];
+  const links = ORDEM_ARQ.filter(k => disp.includes(k)).map(k =>
+    `<a class="btn ${DESTAQUE.has(k) ? "principal" : ""}"
+        href="/api/jobs/${job.id}/file/${k}">${NOMES_ARQ[k] || k}</a>`).join("");
+  return `<div class="downloads"><span class="rot">Baixar</span>${links}
+    <button class="btn excluir" type="button" data-acao="excluir" data-id="${job.id}">Excluir</button></div>`;
+}
+
+function cardHTML(job){
+  const dur = job.duration ? ` · ${hms(job.duration)}` : "";
+  const eng = job.engine === "whisperx" ? "WhisperX local" : "AssemblyAI";
+  const fase = (job.status === "processando" || job.status === "na_fila")
+    ? `<p class="fase">Fase: <b>${esc(job.phase)}</b></p>` : "";
+  const erro = job.error ? `<p class="msg-erro">${esc(job.error)}</p>` : "";
+  return `<div class="card">
+    <div class="topo">
+      <div>
+        <div class="nome">${esc(job.filename)}</div>
+        <div class="meta mono">${eng}${dur}</div>
+      </div>
+      <span class="badge ${job.status}">${rotulo[job.status] || job.status}</span>
+    </div>
+    ${fase}${erro}${ataHTML(job)}${timelineHTML(job)}${acoesHTML(job)}${downloadsHTML(job)}
+  </div>`;
+}
+
+async function atualizar(){
+  try {
+    const jobs = await (await fetch("/api/jobs")).json();
+    jobsCache = jobs;
+    $("#contagem").textContent =
+      jobs.length ? `${jobs.length} arquivo${jobs.length > 1 ? "s" : ""}` : "";
+    lista.innerHTML = jobs.length
+      ? jobs.map(cardHTML).join("")
+      : '<p class="vazio">Nenhuma transcrição ainda. Envie a primeira gravação.</p>';
+    temAtivos = jobs.some(j => j.status === "processando" || j.status === "na_fila"
+                               || j.ata_status === "gerando");
+  } catch(_) { /* servidor reiniciando — tenta de novo no próximo ciclo */ }
+}
+
+lista.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-acao]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  switch (btn.dataset.acao) {
+    case "excluir":
+      if (!confirm("Excluir esta transcrição e seus arquivos?")) return;
+      {
+        const r = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+        if (!r.ok) avisar(await erroMsg(r), "erro");
+      }
+      atualizar();
+      break;
+    case "revisar": abrirRevisao(id); break;
+    case "email":   abrirEmail(id); break;
+    case "ata":     pedirAta(id); break;
+  }
+});
+
+async function pedirAta(id){
+  const job = jobsCache.find(j => j.id === id);
+  const refazer = job && (job.outputs || []).includes("ata");
+  if (refazer && !confirm("Refazer a ata? A versão atual será substituída.")) return;
+  const r = await fetch(`/api/jobs/${id}/ata`, { method: "POST" });
+  if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+  avisar("Gerando a ata…", "ok");
+  atualizar();
+}
+
+/* ====================== PERFIL E ASSINATURA ====================== */
+const pad = { cv:null, ctx:null, ativo:false, sujo:false };
+let modoAss = "desenho";       // "desenho" | "arquivo"
+let arquivoAss = null;
+
+function iniciarPad(){
+  const cv = $("#padCanvas");
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.round(r.width * dpr));
+  cv.height = Math.max(1, Math.round(r.height * dpr));
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineWidth = 2.6; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = "#101828";
+  pad.cv = cv; pad.ctx = ctx; pad.sujo = false; pad.ativo = false;
+}
+function ponto(e){
+  const r = pad.cv.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+(function ligarPad(){
+  const cv = $("#padCanvas");
+  cv.addEventListener("pointerdown", e => {
+    if (!pad.ctx) return;
+    e.preventDefault();
+    cv.setPointerCapture(e.pointerId);
+    pad.ativo = true;
+    const [x, y] = ponto(e);
+    pad.ctx.beginPath(); pad.ctx.moveTo(x, y);
+    pad.ctx.lineTo(x + 0.01, y + 0.01); pad.ctx.stroke();   // ponto simples
+    pad.sujo = true;
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!pad.ativo) return;
+    e.preventDefault();
+    const [x, y] = ponto(e);
+    pad.ctx.lineTo(x, y); pad.ctx.stroke();
+    pad.ctx.beginPath(); pad.ctx.moveTo(x, y);
+  });
+  const fim = () => { pad.ativo = false; };
+  cv.addEventListener("pointerup", fim);
+  cv.addEventListener("pointercancel", fim);
+})();
+$("#btnLimparPad").addEventListener("click", () => iniciarPad());
+
+function escolherModoAss(modo){
+  modoAss = modo;
+  $("#abaDesenho").setAttribute("aria-selected", modo === "desenho");
+  $("#abaArquivo").setAttribute("aria-selected", modo === "arquivo");
+  $("#painelDesenho").hidden = modo !== "desenho";
+  $("#painelArquivo").hidden = modo !== "arquivo";
+  if (modo === "desenho") iniciarPad();
+}
+$("#abaDesenho").addEventListener("click", () => escolherModoAss("desenho"));
+$("#abaArquivo").addEventListener("click", () => escolherModoAss("arquivo"));
+
+$("#assArquivo").addEventListener("change", e => {
+  arquivoAss = e.target.files[0] || null;
+  const box = $("#assPrevBox");
+  if (arquivoAss) {
+    $("#assPrev").src = URL.createObjectURL(arquivoAss);
+    box.hidden = false;
+  } else { box.hidden = true; }
+});
+
+function mostrarAssAtual(){
+  const box = $("#assAtualBox");
+  box.hidden = !perfil.tem_assinatura;
+  if (perfil.tem_assinatura)
+    $("#assAtual").src = "/api/profile/signature.png?t=" + Date.now();
+}
+
+async function carregarPerfil(){
+  try {
+    const r = await fetch("/api/profile");
+    if (r.ok) perfil = await r.json();
+  } catch(_) {}
+  $("#avisoAss").classList.toggle("ativo", !perfil.tem_assinatura);
+}
+async function carregarConfig(){
+  try {
+    const r = await fetch("/api/config");
+    if (r.ok) cfg = await r.json();
+  } catch(_) {}
+}
+
+async function abrirPerfil(){
+  await carregarPerfil();
+  $("#pfNome").value = perfil.nome;
+  $("#pfCargo").value = perfil.cargo;
+  $("#pfOrg").value = perfil.organizacao;
+  $("#pfEmail").value = perfil.email;
+  $("#pfEstado").textContent = ""; $("#pfEstado").className = "estado";
+  arquivoAss = null; $("#assArquivo").value = ""; $("#assPrevBox").hidden = true;
+  mostrarAssAtual();
+  $("#dlgPerfil").showModal();
+  escolherModoAss("desenho");          // o canvas só mede certo com o diálogo aberto
+}
+$("#btnPerfil").addEventListener("click", abrirPerfil);
+$("#btnAvisoAss").addEventListener("click", abrirPerfil);
+
+$("#btnRemoverAss").addEventListener("click", async () => {
+  if (!confirm("Remover a assinatura cadastrada? Os próximos PDFs sairão sem ela.")) return;
+  const r = await fetch("/api/profile/signature", { method: "DELETE" });
+  if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+  perfil = await r.json();
+  mostrarAssAtual();
+  $("#avisoAss").classList.toggle("ativo", !perfil.tem_assinatura);
+});
+
+$("#btnSalvarPerfil").addEventListener("click", async () => {
+  const estado = $("#pfEstado");
+  const btn = $("#btnSalvarPerfil");
+  const falha = msg => { estado.textContent = msg; estado.className = "estado erro"; };
+  btn.disabled = true; estado.textContent = "Salvando…"; estado.className = "estado";
+  try {
+    let r = await fetch("/api/profile", jsonOpts("PUT", {
+      nome: $("#pfNome").value, cargo: $("#pfCargo").value,
+      organizacao: $("#pfOrg").value, email: $("#pfEmail").value
+    }));
+    if (!r.ok) return falha(await erroMsg(r));
+    perfil = await r.json();
+
+    let blob = null, nome = "assinatura.png";
+    if (modoAss === "desenho" && pad.sujo)
+      blob = await new Promise(res => $("#padCanvas").toBlob(res, "image/png"));
+    else if (modoAss === "arquivo" && arquivoAss) { blob = arquivoAss; nome = arquivoAss.name; }
+
+    if (blob) {
+      const fd = new FormData();
+      fd.append("file", blob, nome);
+      r = await fetch("/api/profile/signature", { method: "POST", body: fd });
+      if (!r.ok) return falha(await erroMsg(r, "Não consegui salvar a assinatura."));
+      perfil = await r.json();
+    }
+    $("#avisoAss").classList.toggle("ativo", !perfil.tem_assinatura);
+    $("#dlgPerfil").close();
+    avisar(blob ? "Perfil e assinatura salvos." : "Perfil salvo.", "ok");
+  } catch(_) {
+    falha("Falha de rede ao salvar.");
+  } finally { btn.disabled = false; }
+});
+
+/* ====================== REVISÃO DE NOMES ====================== */
+let revId = null, revDados = null;
+
+async function abrirRevisao(id){
+  const r = await fetch(`/api/jobs/${id}/review`);
+  if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+  revId = id; revDados = await r.json();
+  renderRevisao();
+  $("#revEstado").textContent = ""; $("#revEstado").className = "estado";
+  $("#dlgRev").showModal();
+}
+
+function linhaCorrecao(de, para){
+  const d = document.createElement("div");
+  d.className = "corr";
+  d.innerHTML = `<input type="text" class="de" maxlength="80" aria-label="Texto errado" placeholder="como saiu">
+    <span class="seta" aria-hidden="true">→</span>
+    <input type="text" class="para" maxlength="80" aria-label="Texto correto" placeholder="como deve ficar">
+    <button type="button" aria-label="Remover correção">×</button>`;
+  d.querySelector(".de").value = de || "";
+  d.querySelector(".para").value = para || "";
+  d.querySelector("button").addEventListener("click", () => d.remove());
+  return d;
+}
+
+function renderRevisao(){
+  const d = revDados;
+  $("#revPart").value = (d.participants || []).join("\n");
+  $("#revTitulo").value = d.meeting.title || "";
+  $("#revData").value = d.meeting.date || "";
+  $("#revLocal").value = d.meeting.place || "";
+  $("#listaPart").innerHTML = (d.participants || [])
+    .map(p => `<option value="${esc(p)}">`).join("");
+
+  $("#revFalantes").innerHTML = (d.speakers || []).map((s, i) => `
+    <div class="spk">
+      <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
+        <span class="qtd">${s.falas} falas · ${s.palavras} palavras</span></div>
+      ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
+      <input type="text" list="listaPart" maxlength="80" data-label="${esc(s.label)}"
+        value="${esc(s.nome || "")}" placeholder="Quem é? (opcional)"
+        aria-label="Nome de ${esc(s.label)}">
+    </div>`).join("") || '<p class="exp">Sem falantes.</p>';
+
+  const corr = $("#revCorr");
+  corr.innerHTML = "";
+  (d.corrections || []).forEach(c => corr.appendChild(linhaCorrecao(c.de, c.para)));
+
+  const sug = d.suggestions || [];
+  $("#revSugBox").hidden = !sug.length;
+  $("#revSug").innerHTML = sug.map((s, i) => `
+    <label class="sug"><input type="checkbox" data-de="${esc(s.de)}" data-para="${esc(s.para)}">
+      <span><b>${esc(s.de)}</b> → <b>${esc(s.para)}</b>
+      <small>· ${s.ocorrencias}× no texto · ${Math.round(s.similaridade * 100)}% parecido</small></span>
+    </label>`).join("");
+}
+
+$("#btnAddCorr").addEventListener("click", () => {
+  const linha = linhaCorrecao("", "");
+  $("#revCorr").appendChild(linha);
+  linha.querySelector(".de").focus();
+});
+
+function coletarRevisao(){
+  const participants = $("#revPart").value.split(/[\n;]+/).map(s => s.trim()).filter(Boolean);
+  const speaker_names = {};
+  document.querySelectorAll("#revFalantes input[data-label]").forEach(i => {
+    if (i.value.trim()) speaker_names[i.dataset.label] = i.value.trim();
+  });
+  const corrections = [];
+  document.querySelectorAll("#revCorr .corr").forEach(row => {
+    const de = row.querySelector(".de").value.trim();
+    const para = row.querySelector(".para").value.trim();
+    if (de && para && de !== para) corrections.push({ de, para });
+  });
+  document.querySelectorAll("#revSug input:checked").forEach(cb =>
+    corrections.push({ de: cb.dataset.de, para: cb.dataset.para }));
+  return {
+    participants, speaker_names, corrections,
+    meeting: { title: $("#revTitulo").value, date: $("#revData").value, place: $("#revLocal").value }
+  };
+}
+
+$("#btnSalvarRev").addEventListener("click", async () => {
+  const estado = $("#revEstado");
+  const btn = $("#btnSalvarRev");
+  btn.disabled = true; estado.textContent = "Salvando…"; estado.className = "estado";
+  try {
+    const r = await fetch(`/api/jobs/${revId}/review`, jsonOpts("PUT", coletarRevisao()));
+    if (!r.ok) { estado.textContent = await erroMsg(r); estado.className = "estado erro"; return; }
+    revDados = await r.json();
+    renderRevisao();
+    const n = (revDados.suggestions || []).length;
+    estado.textContent = n
+      ? `Salvo. ${n} sugestão(ões) de grafia nova(s) — marque as que quiser e salve de novo.`
+      : "Salvo. Arquivos atualizados.";
+    estado.className = "estado ok";
+    atualizar();
+    if (revDados.ata_desatualizada && cfg.ata_disponivel &&
+        confirm("A ata foi gerada antes dessas mudanças. Refazer a ata agora com os nomes e a grafia atuais?"))
+      pedirAta(revId);
+  } catch(_) {
+    estado.textContent = "Falha de rede ao salvar."; estado.className = "estado erro";
+  } finally { btn.disabled = false; }
+});
+
+/* ====================== E-MAIL ====================== */
+let emId = null, emMsgEditada = false;
+const ROT_ANEXO = {
+  ata_pdf:"Ata (PDF, com sua assinatura)",
+  transcricao_pdf:"Transcrição (PDF, com sua assinatura)",
+  ata:"Ata (Markdown)", txt:"Transcrição (TXT)", srt:"Legendas (SRT)",
+  vtt:"Legendas (VTT)", json:"Transcrição (JSON)"
+};
+const ORDEM_EMAIL = ["ata_pdf","transcricao_pdf","ata","txt","srt","vtt","json"];
+
+function anexosMarcados(){
+  return [...document.querySelectorAll("#emAnexos input:checked")].map(i => i.value);
+}
+function tituloReuniao(job){
+  return (job.meeting && job.meeting.title) || job.filename.replace(/\.[^.]+$/, "");
+}
+function corpoPadrao(job, anexos){
+  const docs = [];
+  if (anexos.some(a => a.startsWith("ata"))) docs.push("a ata");
+  if (anexos.some(a => a.startsWith("transcricao") || ["txt","srt","vtt","json"].includes(a)))
+    docs.push("a transcrição");
+  const quais = docs.join(" e ") || "os documentos";
+  const data = job.meeting && job.meeting.date ? ` (${job.meeting.date})` : "";
+  const assin = [perfil.nome, perfil.cargo, perfil.organizacao].filter(Boolean).join("\n");
+  return `Olá,\n\nSegue em anexo ${quais} da reunião “${tituloReuniao(job)}”${data}.\n\n${assin}`.trim();
+}
+
+function historicoEmail(job){
+  const ul = $("#emHist");
+  const log = (job.email_log || []).slice().reverse().slice(0, 5);
+  ul.innerHTML = log.map(l =>
+    `<li>${new Date(l.quando * 1000).toLocaleString("pt-BR")} → ${esc((l.para || []).join(", "))}
+     (${esc((l.anexos || []).map(a => ROT_ANEXO[a] ? ROT_ANEXO[a].split(" (")[0] : a).join(", "))})</li>`
+  ).join("");
+}
+
+async function abrirEmail(id){
+  await carregarPerfil();
+  const job = (await (await fetch(`/api/jobs/${id}`)).json());
+  emId = id; emMsgEditada = false;
+  let st = { configurado:false, de:"" };
+  try { st = await (await fetch("/api/email/status")).json(); } catch(_) {}
+
+  $("#emNaoConfig").hidden = st.configurado;
+  $("#btnEnviarEmail").disabled = !st.configurado;
+  $("#emRemetente").textContent = st.configurado
+    ? `Remetente: ${st.de}` + (perfil.email ? ` · respostas para ${perfil.email}` : "") : "";
+
+  $("#emPara").value = lerLocal("escriba.emailPara");
+  $("#emCc").value = "";
+  $("#emAssunto").value = `Ata e transcrição — ${tituloReuniao(job)}`;
+
+  const disp = job.outputs || [];
+  $("#emAnexos").innerHTML = ORDEM_EMAIL.filter(k => disp.includes(k)).map(k => `
+    <label class="chk" style="padding:0"><input type="checkbox" value="${k}"
+      ${["ata_pdf","transcricao_pdf"].includes(k) ? "checked" : ""}>${ROT_ANEXO[k]}</label>`).join("");
+
+  const atualizarCorpo = () => {
+    if (!emMsgEditada) $("#emMsg").value = corpoPadrao(job, anexosMarcados());
+  };
+  document.querySelectorAll("#emAnexos input").forEach(i => i.addEventListener("change", atualizarCorpo));
+  atualizarCorpo();
+
+  historicoEmail(job);
+  $("#emEstado").textContent = ""; $("#emEstado").className = "estado";
+  $("#dlgEmail").showModal();
+}
+$("#emMsg").addEventListener("input", () => { emMsgEditada = true; });
+
+$("#btnEnviarEmail").addEventListener("click", async () => {
+  const estado = $("#emEstado");
+  const btn = $("#btnEnviarEmail");
+  const anexos = anexosMarcados();
+  if (!$("#emPara").value.trim()) { estado.textContent = "Informe o destinatário."; estado.className = "estado erro"; return; }
+  if (!anexos.length) { estado.textContent = "Marque pelo menos um anexo."; estado.className = "estado erro"; return; }
+  if (!perfil.tem_assinatura && anexos.some(a => a.endsWith("_pdf")) &&
+      !confirm("Sua assinatura ainda não foi cadastrada: os PDFs vão sem ela. Enviar assim mesmo?")) return;
+
+  btn.disabled = true; estado.textContent = "Gerando PDFs e enviando…"; estado.className = "estado";
+  try {
+    const r = await fetch(`/api/jobs/${emId}/email`, jsonOpts("POST", {
+      para: $("#emPara").value, cc: $("#emCc").value,
+      assunto: $("#emAssunto").value, mensagem: $("#emMsg").value, anexos
+    }));
+    if (!r.ok) { estado.textContent = await erroMsg(r); estado.className = "estado erro"; return; }
+    gravarLocal("escriba.emailPara", $("#emPara").value);
+    estado.textContent = "Enviado."; estado.className = "estado ok";
+    avisar("E-mail enviado.", "ok");
+    await atualizar();
+    const job = jobsCache.find(j => j.id === emId);
+    if (job) historicoEmail(job);
+  } catch(_) {
+    estado.textContent = "Falha de rede ao enviar."; estado.className = "estado erro";
+  } finally { btn.disabled = false; }
+});
+
+/* ====================== início ====================== */
+(async function iniciar(){
+  await Promise.all([carregarPerfil(), carregarConfig()]);
+  await atualizar();
+})();
+setInterval(() => { if (temAtivos) atualizar(); }, 2500);
+setInterval(atualizar, 15000); // sincronização de fundo
+</script>
+</body>
+</html>

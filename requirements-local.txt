@@ -1,0 +1,3 @@
+# Engine local (WhisperX). Instala PyTorch (~2 GB+). Use quando tiver GPU NVIDIA.
+#   pip install -r requirements.txt -r requirements-local.txt
+whisperx>=3.1

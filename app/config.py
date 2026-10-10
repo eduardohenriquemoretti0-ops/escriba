@@ -1,68 +1,57 @@
-"""Configuração central do escriba (lê .env / ambiente)."""
-from __future__ import annotations
-
+"""Configuração central do Escriba — lida do ambiente / arquivo .env."""
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
+from dotenv import load_dotenv
 
-    load_dotenv()  # .env do diretório atual
-    load_dotenv(Path.home() / ".env")  # variáveis globais do operador
-except Exception:
-    pass  # dotenv é opcional; variáveis de ambiente ainda funcionam
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
+# --- Diretórios -------------------------------------------------------------
+DATA_DIR = Path(os.getenv("ESCRIBA_DATA_DIR", BASE_DIR / "data"))
+JOBS_DIR = DATA_DIR / "jobs"
+PROFILE_DIR = DATA_DIR / "profile"          # perfil + assinatura do cliente
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
-def _expand(p: str) -> Path:
-    return Path(os.path.expanduser(p)).resolve()
+# --- Motor de transcrição ---------------------------------------------------
+# "assemblyai"  -> API na nuvem, com diarização nativa (recomendado sem GPU)
+# "whisperx"    -> 100% local (Whisper + pyannote), recomendado com GPU NVIDIA
+DEFAULT_ENGINE = os.getenv("ESCRIBA_ENGINE", "assemblyai")
 
+# --- AssemblyAI --------------------------------------------------------------
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
 
-@dataclass(frozen=True)
-class Settings:
-    # transcrição
-    engine: str
-    whisper_model: str
-    whisper_device: str
-    whisper_compute: str
-    language: str | None
-    # sumarização
-    summary_enabled: bool
-    model_small: str
-    model_large: str
-    summary_threshold_chars: int
-    max_chars: int
-    # api / segurança
-    api_token: str
-    ratelimit_max: int
-    ratelimit_window_sec: int
-    max_upload_mb: int
-    # armazenamento
-    data_dir: Path
-    cleanup_days: int
+# --- WhisperX (local) --------------------------------------------------------
+HF_TOKEN = os.getenv("HF_TOKEN", "")               # token Hugging Face (pyannote)
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")   # auto | cuda | cpu
+WHISPER_BATCH_SIZE = int(os.getenv("WHISPER_BATCH_SIZE", "8"))
 
+# --- Ata automática (opcional, via API Anthropic) ----------------------------
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+SUMMARY_MODEL = os.getenv("ESCRIBA_SUMMARY_MODEL", "claude-sonnet-4-6")
 
-def load_settings() -> Settings:
-    lang = os.getenv("ESCRIBA_LANGUAGE", "").strip()
-    return Settings(
-        engine=os.getenv("ESCRIBA_TRANSCRIBE_ENGINE", "local").strip().lower(),
-        whisper_model=os.getenv("ESCRIBA_WHISPER_MODEL", "small").strip(),
-        whisper_device=os.getenv("ESCRIBA_WHISPER_DEVICE", "cpu").strip(),
-        whisper_compute=os.getenv("ESCRIBA_WHISPER_COMPUTE", "int8").strip(),
-        language=lang or None,
-        summary_enabled=os.getenv("ESCRIBA_SUMMARY_ENABLED", "false").strip().lower()
-        in ("1", "true", "yes", "sim"),
-        model_small=os.getenv("ESCRIBA_MODEL_SMALL", "claude-haiku-5-5").strip(),
-        model_large=os.getenv("ESCRIBA_MODEL_LARGE", "claude-sonnet-5-5").strip(),
-        summary_threshold_chars=int(os.getenv("ESCRIBA_SUMMARY_THRESHOLD_CHARS", "400000")),
-        max_chars=int(os.getenv("ESCRIBA_MAX_CHARS", "1500000")),
-        api_token=os.getenv("ESCRIBA_API_TOKEN", "").strip(),
-        ratelimit_max=int(os.getenv("ESCRIBA_RATELIMIT_MAX", "60")),
-        ratelimit_window_sec=int(os.getenv("ESCRIBA_RATELIMIT_WINDOW_SEC", "60")),
-        max_upload_mb=int(os.getenv("ESCRIBA_MAX_UPLOAD_MB", "500")),
-        data_dir=_expand(os.getenv("ESCRIBA_DATA_DIR", "~/escriba/data")),
-        cleanup_days=int(os.getenv("ESCRIBA_CLEANUP_DAYS", "7")),
-    )
+# --- E-mail (envio da ata e da transcrição) ----------------------------------
+# Qualquer provedor SMTP serve (Proton, Gmail com senha de app, Zoho, Outlook...)
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_USER
+SMTP_SECURITY = os.getenv("SMTP_SECURITY", "starttls").strip().lower()  # starttls | ssl | none
+EMAIL_MAX_ATTACH_MB = int(os.getenv("ESCRIBA_EMAIL_MAX_MB", "20"))
+EMAIL_MAX_RECIPIENTS = 20
 
+# --- Upload -------------------------------------------------------------------
+# Formatos aceitos (áudio e vídeo). O ffmpeg extrai/normaliza o áudio de todos.
+ALLOWED_EXTENSIONS = {
+    # áudio
+    ".m4a", ".mp3", ".wav", ".wma", ".m4p", ".aac", ".ogg", ".flac",
+    # vídeo
+    ".mp4", ".mov", ".avi", ".mpeg", ".mpg", ".wmv", ".mkv", ".3gp", ".webm",
+}
+MAX_UPLOAD_BYTES = int(os.getenv("ESCRIBA_MAX_UPLOAD_MB", "6000")) * 1024 * 1024
+MAX_SIGNATURE_BYTES = 5 * 1024 * 1024
 
-settings = load_settings()
+DEFAULT_LANGUAGE = os.getenv("ESCRIBA_LANGUAGE", "pt")  # "auto" para detectar
