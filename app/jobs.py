@@ -5,6 +5,8 @@ Estrutura de cada job:
     audio.mp3|wav    áudio normalizado
     segmentos.json   transcrição CRUA (nunca é alterada; as correções de nomes
                      e grafia são aplicadas por cima, na hora de gerar os arquivos)
+    vozes.json       assinatura de voz de cada falante (motor local), usada
+                     para aprender as vozes quando o usuário confirma os nomes
     meta.json        estado + dados de revisão (participantes, nomes, correções)
     transcricao.txt / .srt / .vtt / .json
     ata.md           (opcional)
@@ -63,6 +65,10 @@ class Job:
     ata_status: str = ""                                    # gerando|pronta|erro
     ata_error: str = ""                                     # motivo, se ata_status=erro
     email_log: list = field(default_factory=list)           # envios feitos
+
+    # ---- reconhecimento de vozes e nomes (motor local) ----------------------
+    vozes_info: dict = field(default_factory=dict)          # resumo da fase 1
+    nomes_auto: dict = field(default_factory=dict)          # "Falante 1" -> {nome, fonte, detalhe}
 
     # ---- caminhos ----------------------------------------------------------
     @property

@@ -61,7 +61,11 @@ def main() -> None:
             expect(page.locator("#avisoAss")).to_be_visible()
 
             # ---- envio com nomes e ata ----------------------------------------
-            page.fill("#nomesUpload", "Rosilaine Andrade\nEduardo Moretti")
+            # participantes em campos separados (v3)
+            page.fill("#partUpload .part-linha:nth-child(1) input", "Rosilaine Andrade")
+            page.click("#btnAddPartUpload")
+            page.fill("#partUpload .part-linha:nth-child(2) input", "Eduardo Moretti")
+            page.select_option("#engine", "assemblyai")   # motor simulado no teste
             page.check("#ata")
             page.set_input_files("#arquivo", str(wav))
             card = page.locator(".card").first
@@ -110,7 +114,12 @@ def main() -> None:
             # ---- revisão de nomes -----------------------------------------------
             card.get_by_role("button", name="Revisar nomes").click()
             expect(page.locator("#dlgRev")).to_be_visible()
-            expect(page.locator("#revPart")).to_have_value("Rosilaine Andrade\nEduardo Moretti")
+            parts = page.locator("#revPartLista input")
+            expect(parts).to_have_count(2)
+            expect(parts.nth(0)).to_have_value("Rosilaine Andrade")
+            expect(parts.nth(1)).to_have_value("Eduardo Moretti")
+            # nome deduzido da conversa ("aqui é a Rosilene") já vem sugerido
+            expect(page.locator("#revFalantes .spk").first).to_contain_text("Sugerido: Rosilaine Andrade")
             expect(page.locator("#revFalantes .spk")).to_have_count(2)
             expect(page.locator("#revSug")).to_contain_text("Rosilene")
             page.locator("#revSug input[type=checkbox]").first.check()

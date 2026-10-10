@@ -134,7 +134,19 @@ def _load_audio(path: Path):
 
 
 class LocalEngine:
+    """Três fases:
+      1. Reconhecer vozes (só pelo som): quantas pessoas falam e se alguma
+         já é conhecida da memória de vozes.
+      2. Transcrever, já separando as falas no nº de vozes da fase 1.
+      3. (no worker) Dar nome às vozes: memória de vozes + quem é chamado
+         pelo nome na conversa.
+    """
     name = "local"
+
+    def __init__(self) -> None:
+        # preenchidos a cada transcrição, lidos pelo worker
+        self.voices: dict[str, dict] = {}       # rótulo -> {vetor, segundos}
+        self.scan: dict = {}                    # resumo da fase 1
 
     def transcribe(
         self,
@@ -146,9 +158,38 @@ class LocalEngine:
         progress: ProgressCB,
         vocabulary: Optional[list[str]] = None,
     ) -> list[Segment]:
-        progress(f"Carregando modelo de transcrição ({config.WHISPER_MODEL})")
-        model = _whisper_model()
+        from .. import vozes
+
         audio = _load_audio(audio_path)
+
+        # ---- Fase 1: reconhecimento de vozes (antes de transcrever) --------
+        progress("Fase 1/3 · Reconhecendo as vozes")
+        extractor = _extractor()
+        scan = diarize.scan_voices(audio, extractor, min_speakers, max_speakers)
+        known = vozes.match({j: c for j, c in scan.centroids.items()})
+        names = [known[j][0] for j in sorted(known)]
+        self.scan = {
+            "vozes": scan.count,
+            "conhecidas": [{"nome": known[j][0], "similaridade": round(known[j][1], 2)}
+                           for j in sorted(known)],
+        }
+        if scan.count == 1:
+            resumo = "1 voz (só uma pessoa falando)"
+        else:
+            resumo = f"{scan.count} vozes"
+        if names:
+            resumo += " · reconhecida(s): " + ", ".join(names)
+        progress(f"Fase 1/3 · {resumo}")
+
+        # Os nomes reconhecidos pela voz também ajudam o Whisper na grafia
+        vocabulary = list(dict.fromkeys([*(vocabulary or []), *names]))
+        # A separação das falas segue o nº de vozes da fase 1 (consistência)
+        if scan.count:
+            min_speakers = max_speakers = scan.count
+
+        # ---- Fase 2: transcrição -----------------------------------------
+        progress(f"Fase 2/3 · Carregando modelo de transcrição ({config.WHISPER_MODEL})")
+        model = _whisper_model()
 
         segments_iter, info = model.transcribe(
             audio,
@@ -177,15 +218,24 @@ class LocalEngine:
             pct = int(min(seg.end / total, 1.0) * 100)
             if pct >= last_pct + 2:
                 last_pct = pct
-                progress(f"Transcrevendo (local) — {pct}%")
+                progress(f"Fase 2/3 · Transcrevendo — {pct}%")
 
         if not words:
             return []
 
-        progress("Identificando falantes (local)")
-        sentences = diarize.diarize(
-            audio, words, _extractor(),
+        progress("Fase 2/3 · Separando as falas por pessoa")
+        sentences, centroids = diarize.diarize(
+            audio, words, extractor,
             min_speakers=min_speakers, max_speakers=max_speakers)
+
+        talk = {}
+        for s in sentences:
+            talk[s.speaker] = talk.get(s.speaker, 0.0) + s.duration
+        self.voices = {
+            diarize.speaker_label(j): {"vetor": [round(float(x), 6) for x in vec],
+                                       "segundos": round(talk.get(j, 0.0), 1)}
+            for j, vec in centroids.items()
+        }
 
         # "Utterances" como no AssemblyAI: o bloco de um falante só termina
         # quando outra pessoa fala (ou após um silêncio longo).

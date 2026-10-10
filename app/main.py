@@ -14,7 +14,10 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, jobs, mailer, media, pdfdocs, profile, review, worker
+import json
+
+from . import (config, exports, jobs, mailer, media, pdfdocs, profile, review,
+               vozes, worker)
 
 app = FastAPI(title="Escriba", docs_url="/api/docs")
 
@@ -224,6 +227,8 @@ def _review_payload(job: jobs.Job) -> dict:
         "suggestions": review.suggest_corrections(job),
         "ata_existe": job.path("ata.md").exists(),
         "ata_status": job.ata_status,
+        "vozes_info": job.vozes_info,
+        "aprende_vozes": job.path("vozes.json").exists(),
     }
 
 
@@ -272,10 +277,39 @@ def put_review(job_id: str, body: ReviewIn):
     review.render_outputs(job_id)
 
     job = _get_job(job_id)
+    learned = _learn_voices(job) if names is not None else []
     payload = _review_payload(job)
     payload["ata_desatualizada"] = bool(
         changed["stale"] and job.path("ata.md").exists())
+    payload["vozes_aprendidas"] = learned
     return payload
+
+
+def _learn_voices(job: jobs.Job) -> list[str]:
+    """Nomes confirmados na revisão viram memória de voz (motor local)."""
+    vfile = job.path("vozes.json")
+    if not vfile.exists():
+        return []
+    voices = json.loads(vfile.read_text(encoding="utf-8"))
+    display = exports.speaker_map(review.load_raw(job))      # "A" -> "Falante 1"
+    assignments = {raw: job.speaker_names.get(label, "")
+                   for raw, label in display.items() if raw in voices}
+    return vozes.learn(job.id, assignments, voices)
+
+
+# --------------------------------------------------------------------------
+# Vozes conhecidas (memória de vozes)
+# --------------------------------------------------------------------------
+@app.get("/api/vozes")
+def list_voices():
+    return {"pessoas": vozes.list_people()}
+
+
+@app.delete("/api/vozes/{nome}")
+def forget_voice(nome: str):
+    if not vozes.forget(nome):
+        raise HTTPException(status_code=404, detail="Voz não encontrada.")
+    return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/ata")

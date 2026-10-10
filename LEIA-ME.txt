@@ -22,6 +22,13 @@ CONFIGURAÇÕES (opcional)
   e preencha só o que for usar: chave da ata (ANTHROPIC_API_KEY), e-mail (SMTP_*),
   termos frequentes da empresa (ESCRIBA_TERMOS), modelo (WHISPER_MODEL).
 
+O ESCRIBA APRENDE AS VOZES
+  Antes de transcrever, ele conta quantas pessoas falam e reconhece quem já
+  conhece. Depois descobre os nomes pela conversa (quem é chamado pelo nome).
+  Confira os nomes em "Revisar nomes" e salve: a partir daí ele reconhece
+  essas pessoas sozinho nas próximas reuniões. "Vozes conhecidas" mostra e
+  apaga as vozes guardadas. Guarde vozes só com o consentimento das pessoas.
+
 DICAS PARA MELHOR RESULTADO
   - Informe os nomes dos participantes no envio: o motor passa a preferir
     a grafia certa deles.

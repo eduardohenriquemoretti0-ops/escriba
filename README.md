@@ -79,6 +79,32 @@ qualquer PC. Na CPU (i5 de 4 núcleos), leva aproximadamente o tempo do próprio
 áudio. Para máquinas fracas, use `WHISPER_MODEL=small` no `.env` (bem mais
 rápido, porém erra mais).
 
+### Reconhecimento de vozes e nomes (motor Local)
+A transcrição acontece em três fases:
+
+1. **Reconhecer vozes**, antes de transcrever e só pelo som (~20 s por
+   reunião). Conta quantas pessoas falam (1, 2…) e compara cada voz com as
+   **vozes conhecidas**.
+2. **Transcrever**, já separando as falas no número de vozes da fase 1.
+3. **Dar nome às vozes**, nesta ordem:
+   - voz reconhecida pela memória ("Fernando, 91% parecida");
+   - apresentação na conversa ("aqui é o Fernando", "Eduardo falando");
+   - quem é chamado pelo nome ("Então fechou, Fernando." indica que o *outro*
+     é o Fernando). Fala citada ("ele disse: …, Fernando") não conta.
+   Grafia parecida com um participante informado vale por ele: "Rosilene"
+   na fala vira "Rosilaine Andrade".
+
+Os nomes saem **sugeridos** na tela "Revisar nomes". Ao salvar a revisão,
+o Escriba **aprende a voz** de cada pessoa confirmada (`app/vozes.py`). Na
+próxima reunião com essa pessoa, ela é reconhecida já na fase 1. Cada reunião
+confirmada torna o reconhecimento mais estável. Só aprende o que foi
+confirmado; um palpite errado nunca vira memória.
+
+A tela **Vozes conhecidas** lista quem o Escriba reconhece e permite apagar.
+As assinaturas ficam em `<dados>/vozes/vozes.json`, só neste computador.
+> ⚠️ Assinatura de voz é dado biométrico (dado pessoal sensível na LGPD).
+> Grave e guarde vozes apenas com o consentimento dos participantes.
+
 ### 2. AssemblyAI: nuvem
 Precisa de internet e de `ASSEMBLYAI_API_KEY`. Custa cerca de US$ 0,15–0,21
 por hora de áudio, conforme o modelo (confira em `assemblyai.com/pricing`).
@@ -177,7 +203,7 @@ registrado no card da transcrição.
 ## Testes
 
 ```bash
-python -m pytest test_diarize.py   # diarização local (sem modelos)
+python -m pytest test_diarize.py test_vozes_nomes.py   # diarização, vozes e nomes
 python test_integracao.py   # fluxo original (sem chaves de API)
 python test_v2.py           # nomes, correções, assinatura, PDFs, e-mail (SMTP local)
 python test_ui.py           # opcional: tela num Chromium (pip install playwright && playwright install chromium)
@@ -212,6 +238,8 @@ escriba/
 │   ├── main.py                # API FastAPI + UI estática
 │   ├── worker.py              # fila (1 job por vez) em thread; também refaz atas
 │   ├── review.py              # nomes dos participantes, correções, sugestões
+│   ├── vozes.py               # memória de vozes (aprende a cada revisão)
+│   ├── nomes.py               # descobre nomes pela conversa
 │   ├── profile.py             # perfil do cliente + imagem da assinatura
 │   ├── pdfdocs.py             # PDF da ata e da transcrição (WeasyPrint)
 │   ├── mailer.py              # envio por SMTP

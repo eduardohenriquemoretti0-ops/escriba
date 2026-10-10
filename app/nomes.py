@@ -1,0 +1,180 @@
+"""Descobre quem é quem pelo que as pessoas falam.
+
+Duas pistas na transcrição:
+
+1. Vocativo: "Então fechou, Fernando." Quem fala NÃO é o Fernando; quem
+   responde (ou quem falou logo antes) provavelmente é.
+2. Apresentação: "Aqui é o Fernando", "eu sou a Ana", "meu nome é Bia".
+   Quem fala É essa pessoa (pista forte).
+
+As pistas viram votos por falante; cada nome vai para no máximo um falante.
+Só é sugerido quem tiver votos suficientes e folga sobre o segundo colocado.
+É uma SUGESTÃO: aparece preenchida na revisão para o usuário confirmar.
+"""
+from __future__ import annotations
+
+import re
+import unicodedata
+from collections import defaultdict
+from difflib import SequenceMatcher
+from typing import Iterable, Optional
+
+from .engines.base import Segment
+
+MIN_VOTES = 2.0          # votos mínimos para sugerir um nome
+NEXT_TURN_SECONDS = 15.0  # até quanto tempo depois a "resposta" ainda conta
+
+_NAME = r"[A-ZÁÂÃÀÉÊÍÓÔÕÚÇ][a-záâãàéêíóôõúç]{2,}"
+# nome isolado entre pontuação/borda da frase: ", Fernando." / "Fernando, ..."
+# O nome precisa estar com maiúscula; só as palavras ao redor ignoram caixa.
+_VOCATIVE = re.compile(
+    rf"(?:^|[,.!?…]\s+|^(?i:ô|ó|oi|olá|e aí|valeu|obrigad[oa]),?\s+)({_NAME})"
+    rf"(?=\s*[,.!?…]|\s*$)", re.MULTILINE)
+_INTRO = re.compile(
+    rf"\b(?i:aqui (?:é|quem fala é) (?:o|a)|eu sou (?:o|a)|meu nome é|"
+    rf"quem fala é (?:o|a)|sou (?:o|a))\s+({_NAME})")
+# "Eduardo falando", "Fernando aqui" (apresentação no começo da frase)
+_INTRO_AFTER = re.compile(rf"(?:^|[,.!?…]\s+)({_NAME})\s+(?i:falando|aqui)\b", re.MULTILINE)
+# Fala citada ("ele disse: você demorou, Fernando") — o vocativo é de
+# outra pessoa, não de quem está falando agora.
+_QUOTE = re.compile(r"\b(?i:disse|falou|falei|perguntou|perguntei|respondeu|"
+                    r"respondi|mandou|escreveu|me disse|ele disse|ela disse)\b")
+
+# Palavras capitalizadas que não são nomes de pessoa (início de frase etc.)
+_STOP = {
+    "então", "sim", "não", "nao", "beleza", "perfeito", "ótimo", "otimo", "fechou",
+    "exatamente", "isso", "tchau", "obrigado", "obrigada", "valeu", "bom", "boa",
+    "olha", "cara", "mano", "gente", "pessoal", "senhor", "senhora", "deus",
+    "nossa", "pois", "certo", "claro", "verdade", "combinado", "combinadíssimo",
+    "tranquilo", "show", "legal", "ah", "oi", "olá", "ola", "tá", "ta", "ok",
+    "amém", "amem", "irmão", "irmã", "irmao", "irma", "irmãos", "irmãs",
+}
+
+
+def _fold(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", text.casefold())
+                   if unicodedata.category(c) != "Mn")
+
+
+def _proper_nouns(segments: Iterable[Segment]) -> set[str]:
+    """Palavras que aparecem com maiúscula NO MEIO da frase (não por serem
+    a primeira palavra) — sinal de nome próprio."""
+    seen: dict[str, int] = defaultdict(int)
+    for seg in segments:
+        for m in re.finditer(rf"(?<=[a-záâãàéêíóôõúç,]\s)({_NAME})\b", seg.text):
+            seen[m.group(1)] += 1
+    return {w for w, n in seen.items() if n >= 1 and _fold(w) not in _STOP}
+
+
+FUZZY_MIN = 0.75   # "Rosilene" ~ "Rosilaine" = 0,82
+
+
+def _canonical(word: str, known: dict[str, str],
+               trusted: Optional[dict[str, str]] = None) -> Optional[str]:
+    """Nome informado/conhecido que corresponde à palavra ('fernando' ->
+    'Fernando Souza'); None se não for um nome aceito.
+
+    Grafia parecida com um nome INFORMADO (participante ou voz conhecida)
+    vale por ele: o Whisper escreve "Rosilene" e quem se chama
+    "Rosilaine Andrade" não pode virar uma pessoa nova."""
+    key = _fold(word)
+    if trusted:
+        if key in trusted:
+            return trusted[key]
+        best = max(trusted, key=lambda k: SequenceMatcher(None, key, k).ratio())
+        if SequenceMatcher(None, key, best).ratio() >= FUZZY_MIN:
+            return trusted[best]
+    return known.get(key)
+
+
+def infer(segments: list[Segment], candidates: Iterable[str] = (),
+          exclude: Optional[set] = None) -> dict[str, tuple[str, float, str]]:
+    """{rótulo_cru: (nome, votos, motivo)} para os falantes identificados.
+
+    `candidates`: nomes já conhecidos (participantes informados, vozes da
+    memória). Além deles, aceita nomes próprios que aparecem na conversa.
+    `exclude`: rótulos que já têm nome (pela voz) e não devem ser sugeridos.
+    """
+    segs = [s for s in segments if s.text.strip()]
+    speakers = list(dict.fromkeys(s.speaker for s in segs))
+    if len(speakers) < 1:
+        return {}
+
+    known: dict[str, str] = {}
+    for full in candidates:
+        full = full.strip()
+        if not full:
+            continue
+        known.setdefault(_fold(full), full)
+        first = full.split()[0]
+        if len(first) >= 3:
+            known.setdefault(_fold(first), full)
+    trusted = dict(known)                     # só nomes informados/conhecidos
+    for noun in _proper_nouns(segs):
+        known.setdefault(_fold(noun), noun)
+
+    votes: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    reasons: dict[tuple[str, str], list[str]] = defaultdict(list)
+
+    for i, seg in enumerate(segs):
+        for m in [*_INTRO.finditer(seg.text), *_INTRO_AFTER.finditer(seg.text)]:
+            if _fold(m.group(1)) in _STOP:
+                continue
+            # quem se apresenta vale mesmo sem o nome ter aparecido antes
+            name = _canonical(m.group(1), known, trusted) or m.group(1)
+            if name:
+                votes[seg.speaker][name] += 3.0
+                reasons[(seg.speaker, name)].append("apresentou-se")
+
+        for m in _VOCATIVE.finditer(seg.text):
+            word = m.group(1)
+            if _fold(word) in _STOP:
+                continue
+            if _QUOTE.search(seg.text[:m.start()]):
+                continue                             # está citando outra pessoa
+            name = _canonical(word, known, trusted)
+            if not name:
+                continue
+            # Quem chama provavelmente não é o chamado. Peso menor que o voto
+            # a favor: falas curtas ("Valeu, Fernando.") às vezes caem no
+            # falante errado, e o erro não pode anular as pistas boas.
+            votes[seg.speaker][name] -= 0.5
+            target = _addressee(segs, i)
+            if target is not None:
+                votes[target][name] += 1.0
+                reasons[(target, name)].append("foi chamado pelo nome")
+
+    # atribuição: maior voto primeiro, 1 nome por falante e vice-versa
+    pairs = sorted(((v, spk, name) for spk, d in votes.items() for name, v in d.items()),
+                   reverse=True)
+    result: dict[str, tuple[str, float, str]] = {}
+    used_names: set[str] = set()
+    for v, spk, name in pairs:
+        if v < MIN_VOTES or spk in result or name in used_names:
+            continue
+        if exclude and spk in exclude:
+            continue
+        others = [votes[o][name] for o in speakers if o != spk]
+        if others and v - max(others) < 1.0:       # sem folga: ambíguo
+            continue
+        motivo = reasons[(spk, name)]
+        resumo = ("apresentou-se" if "apresentou-se" in motivo
+                  else f"chamado pelo nome {motivo.count('foi chamado pelo nome')}×")
+        result[spk] = (name, v, resumo)
+        used_names.add(name)
+    return result
+
+
+def _addressee(segs: list[Segment], i: int) -> Optional[str]:
+    """Com quem a fala i está falando: quem fala em seguida (se for outra
+    pessoa e logo depois); senão, quem falou por último antes dela."""
+    me = segs[i].speaker
+    for j in range(i + 1, len(segs)):
+        if segs[j].start - segs[i].end > NEXT_TURN_SECONDS:
+            break
+        if segs[j].speaker != me:
+            return segs[j].speaker
+    for j in range(i - 1, -1, -1):
+        if segs[j].speaker != me:
+            return segs[j].speaker
+    return None

@@ -16,7 +16,9 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, jobs, media, review
+import json
+
+from . import config, exports, jobs, media, nomes, review, vozes
 from .engines import get_engine, merge_segments
 
 _queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
@@ -140,7 +142,20 @@ def _process(job: jobs.Job) -> None:
 
     segments = merge_segments(segments)
 
-    # 3) Guardar o cru e gerar os arquivos (nomes/correções entram por cima)
+    # Assinaturas de voz desta reunião (motor local): base do aprendizado
+    voices = getattr(engine, "voices", None) or {}
+    if voices:
+        job.path("vozes.json").write_text(json.dumps(voices), encoding="utf-8")
+    job.vozes_info = getattr(engine, "scan", None) or {}
+    job.save()
+
+    # 3) Dar nome às vozes (sugestões; o usuário confirma na revisão)
+    job.set_phase("Fase 3/3 · Identificando quem é quem" if voices
+                  else "Identificando quem é quem")
+    _auto_names(job, segments, voices)
+    job = jobs.load(job.id)            # _auto_names gravou nomes/participantes
+
+    # 4) Guardar o cru e gerar os arquivos (nomes/correções entram por cima)
     job.set_phase("Gerando arquivos de saída")
     review.save_raw(job, segments)
     meeting = {"title": "", "date": "", "place": "", **job.meeting}
@@ -152,7 +167,7 @@ def _process(job: jobs.Job) -> None:
     review.render_outputs(job.id)
     job = jobs.load(job.id)            # render_outputs gravou falantes/timeline
 
-    # 4) Ata automática (opcional)
+    # 5) Ata automática (opcional)
     if job.want_summary:
         if config.ANTHROPIC_API_KEY:
             job.set_phase("Gerando ata da reunião (IA)")
@@ -169,3 +184,41 @@ def _process(job: jobs.Job) -> None:
         j.finished_at = time.time()
         j.phase = "Concluído"
     jobs.update(job.id, finish)
+
+
+def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
+    """Preenche "Falante N" -> nome com o que der para deduzir:
+    1º a memória de vozes (quem já foi confirmado em outras reuniões),
+    2º quem é chamado pelo nome / se apresenta na conversa.
+    Não sobrescreve nome que o usuário já tenha dado."""
+    display = exports.speaker_map(segments)                  # "A" -> "Falante 1"
+    by_voice = vozes.match({lab: v["vetor"] for lab, v in voices.items()})
+    strong = {lab for lab, (_, sim) in by_voice.items() if sim >= vozes.MATCH_STRONG}
+    candidates = [*job.participants, *(p["nome"] for p in vozes.list_people())]
+    by_talk = nomes.infer(segments, candidates, exclude=strong)
+
+    auto: dict = {}
+    for raw, label in display.items():
+        if raw in by_voice and (raw in strong or raw not in by_talk):
+            name, sim = by_voice[raw]
+            auto[label] = {"nome": name, "fonte": "voz",
+                           "detalhe": f"voz reconhecida ({round(sim * 100)}% parecida)"}
+        elif raw in by_talk:
+            name, _, why = by_talk[raw]
+            auto[label] = {"nome": name, "fonte": "conversa", "detalhe": why}
+
+    # mesmo nome não pode ir para duas vozes
+    seen: set = set()
+    for label in list(auto):
+        if auto[label]["nome"] in seen:
+            del auto[label]
+        else:
+            seen.add(auto[label]["nome"])
+
+    def mutate(j: jobs.Job) -> None:
+        j.nomes_auto = auto
+        for label, info in auto.items():
+            j.speaker_names.setdefault(label, info["nome"])
+            if info["nome"] not in j.participants:
+                j.participants = [*j.participants, info["nome"]]
+    jobs.update(job.id, mutate)

@@ -360,7 +360,7 @@ def main() -> None:
             for nome in ("ata.pdf", "transcricao.pdf"):
                 (OUT / f"amostra_{nome}").write_bytes((config.JOBS_DIR / jid / nome).read_bytes())
 
-            # ---- sem participantes cadastrados: linhas em branco ---------------
+            # ---- sem participantes: nomes deduzidos da conversa (v3) ------------
             with wav.open("rb") as f:
                 r = client.post("/api/jobs", files={"file": ("sem_nomes.wav", f, "audio/wav")}, data={"engine": "assemblyai", "language": "pt"})
             jid2 = r.json()["id"]
@@ -368,7 +368,11 @@ def main() -> None:
             assert client.get(f"/api/jobs/{jid2}/file/ata_pdf").status_code == 404, "sem ata -> 404"
             assert client.get(f"/api/jobs/{jid2}/file/transcricao_pdf").status_code == 200
             sem = pdf_texto(config.JOBS_DIR / jid2 / "transcricao.pdf")
-            assert "Falante 1" in sem and sem.count("Nome") >= 6, "6 linhas em branco quando não há nomes"
+            # "aqui é a Rosilene" / "Eduardo falando" -> nomes sugeridos sozinhos
+            j2 = client.get(f"/api/jobs/{jid2}").json()
+            assert j2["speaker_names"] == {"Falante 1": "Rosilene", "Falante 2": "Eduardo"}, j2["speaker_names"]
+            assert j2["nomes_auto"]["Falante 1"]["fonte"] == "conversa"
+            assert "Rosilene" in sem and "Eduardo" in sem and "Falante 1" not in sem
             # gerar ata depois (botão "Gerar ata")
             assert client.post(f"/api/jobs/{jid2}/ata").status_code == 200
             j2 = esperar(client, jid2, "ata_status", ("pronta", "erro"))

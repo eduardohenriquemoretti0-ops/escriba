@@ -183,6 +183,58 @@ header .perfil-btn{margin-left:auto}
 
 footer{margin-top:56px;font-size:12px;color:var(--cinza)}
 
+/* ---------- participantes em campos separados ---------- */
+let vozesConhecidas = [];
+function linhaParticipante(valor){
+  const d = document.createElement("div");
+  d.className = "part-linha";
+  d.innerHTML = `<input type="text" maxlength="80" list="listaVozesNomes"
+      placeholder="Nome completo, com a grafia correta" aria-label="Nome do participante">
+    <button type="button" aria-label="Remover participante">×</button>`;
+  d.querySelector("input").value = valor || "";
+  d.querySelector("button").addEventListener("click", () => d.remove());
+  return d;
+}
+function preencherParticipantes(sel, nomes){
+  const box = $(sel);
+  box.innerHTML = "";
+  (nomes.length ? nomes : [""]).forEach(n => box.appendChild(linhaParticipante(n)));
+}
+function lerParticipantes(sel){
+  return [...document.querySelectorAll(`${sel} input`)].map(i => i.value.trim()).filter(Boolean);
+}
+function addParticipante(sel){
+  const linha = linhaParticipante("");
+  $(sel).appendChild(linha);
+  linha.querySelector("input").focus();
+}
+
+async function carregarVozes(){
+  try {
+    const r = await fetch("/api/vozes");
+    vozesConhecidas = r.ok ? (await r.json()).pessoas : [];
+  } catch(_) { vozesConhecidas = []; }
+  let dl = document.getElementById("listaVozesNomes");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "listaVozesNomes"; document.body.appendChild(dl); }
+  dl.innerHTML = vozesConhecidas.map(p => `<option value="${esc(p.nome)}">`).join("");
+}
+function renderVozes(){
+  $("#listaVozes").innerHTML = vozesConhecidas.length
+    ? vozesConhecidas.map(p => `<div class="voz-linha">
+        <span>${esc(p.nome)}<small>${p.reunioes} reunião(ões) · ${p.minutos} min de fala</small></span>
+        <button class="btn perigo" type="button" data-esquecer="${esc(p.nome)}">Apagar voz</button>
+      </div>`).join("")
+    : '<p class="exp">Nenhuma voz ainda. Transcreva uma reunião no motor Local e confirme os nomes em “Revisar nomes”.</p>';
+  document.querySelectorAll("[data-esquecer]").forEach(b => b.addEventListener("click", async () => {
+    const nome = b.dataset.esquecer;
+    if (!confirm(`Apagar a voz de ${nome}? O Escriba deixará de reconhecê-la.`)) return;
+    const r = await fetch(`/api/vozes/${encodeURIComponent(nome)}`, { method: "DELETE" });
+    if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+    avisar(`Voz de ${nome} apagada.`, "ok");
+    await carregarVozes(); renderVozes();
+  }));
+}
+
 /* ---------- caixas de diálogo ---------- */
 dialog{
   background:var(--painel);color:var(--papel);
@@ -239,6 +291,20 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   .spk{grid-template-columns:1fr}
   .spk input{grid-row:auto;grid-column:auto}
 }
+
+/* participantes em campos separados */
+.part-lista{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.part-linha{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.part-linha input{
+  background:var(--tinta);color:var(--papel);border:1px solid var(--linha);
+  border-radius:6px;padding:7px 10px;font:inherit;font-size:13.5px;min-width:0;width:100%;
+}
+.part-linha button{background:none;border:none;color:var(--cinza);font-size:18px;padding:0 6px}
+.part-linha button:hover{color:var(--erro)}
+.spk .auto{display:block;font-size:11.5px;color:var(--ok);margin-top:3px}
+.voz-linha{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  padding:8px 0;border-bottom:1px solid var(--linha);font-size:13.5px}
+.voz-linha small{display:block;color:var(--cinza);font-size:11.5px}
 
 /* correções */
 .corr{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;margin-bottom:6px}
@@ -302,6 +368,7 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   <header>
     <div class="logo">Escri<b>ba</b></div>
     <div class="tag">transcrição de reuniões · self-hosted</div>
+    <button class="btn perfil-btn" id="btnVozes" type="button">Vozes conhecidas</button>
     <button class="btn perfil-btn" id="btnPerfil" type="button">Perfil e assinatura</button>
   </header>
   <p class="sub">Envie a gravação da reunião (áudio ou vídeo, Zoom incluso).
@@ -365,14 +432,15 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
       <input type="number" id="falantes" min="1" max="30" placeholder="ex.: 5">
     </label>
     <label class="chk"><input type="checkbox" id="ata">Gerar ata da reunião (IA)</label>
-    <label class="campo larg" style="flex-basis:100%">Nomes dos participantes (opcional)
-      <textarea id="nomesUpload" rows="2"
-        placeholder="Um por linha, com a grafia correta. Ex.: Rosilaine Andrade"></textarea>
-    </label>
-    <p class="dica">Informar o nº de participantes melhora a separação de vozes.
-    Os nomes ajudam o motor a acertar a grafia (você também pode informá-los
-    depois, em “Revisar nomes”). A ata usa a API da Anthropic e exige chave no
-    <span class="mono">.env</span>.</p>
+    <div class="campo larg" style="flex-basis:100%">Participantes (opcional)
+      <div class="part-lista" id="partUpload"></div>
+      <button class="btn" type="button" id="btnAddPartUpload">+ Adicionar participante</button>
+    </div>
+    <p class="dica">Antes de transcrever, o Escriba reconhece quantas vozes há na
+    gravação e quais ele já conhece. Depois descobre os nomes pela conversa
+    (quem é chamado pelo nome). Informar os participantes, com a grafia
+    correta, ajuda nas duas coisas. A ata usa a API da Anthropic e exige chave
+    no <span class="mono">.env</span>.</p>
   </div>
 
   <div class="enviando" id="enviando">
@@ -469,6 +537,26 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   </div>
 </dialog>
 
+<!-- ======================= VOZES CONHECIDAS ======================= -->
+<dialog id="dlgVozes" aria-labelledby="tVozes">
+  <div class="dlg-cab">
+    <h2 id="tVozes">Vozes conhecidas</h2>
+    <button class="x" type="button" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="dlg-corpo">
+    <p class="exp">Pessoas que o Escriba já sabe reconhecer pela voz. Cada vez
+    que você confirma os nomes na revisão de uma reunião, ele aprende um pouco
+    mais sobre a voz de cada uma (funciona no motor <b>Local</b>).</p>
+    <div id="listaVozes"></div>
+    <p class="nota-legal">A assinatura de voz é um dado biométrico (dado pessoal
+    sensível na LGPD). Ela fica só neste computador. Grave e guarde vozes
+    apenas com o consentimento das pessoas, e apague aqui quando alguém pedir.</p>
+  </div>
+  <div class="dlg-rod">
+    <button class="btn" type="button" data-fechar>Fechar</button>
+  </div>
+</dialog>
+
 <!-- ======================= REVISÃO DE NOMES ======================= -->
 <dialog id="dlgRev" aria-labelledby="tRev">
   <div class="dlg-cab">
@@ -478,19 +566,18 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   <div class="dlg-corpo">
     <div class="bloco">
       <h3>1 · Participantes</h3>
-      <p class="exp">Escreva o nome de cada participante com a grafia correta,
-      um por linha. Eles aparecem na ata, nos PDFs (linhas de assinatura) e
-      alimentam as sugestões de correção.</p>
-      <label class="campo larg">
-        <textarea id="revPart" rows="4" aria-label="Participantes, um por linha"
-          placeholder="Rosilaine Andrade&#10;Eduardo Moretti"></textarea>
-      </label>
+      <p class="exp">Um participante por campo, com a grafia correta. Eles aparecem
+      na ata, nos PDFs (linhas de assinatura) e alimentam as sugestões de correção.</p>
+      <div class="part-lista" id="revPartLista"></div>
+      <button class="btn" type="button" id="btnAddPartRev">+ Adicionar participante</button>
     </div>
 
     <div class="bloco">
       <h3>2 · Quem é quem</h3>
-      <p class="exp">O Escriba separou as vozes como “Falante 1, 2…”. Diga quem
-      é cada um; o nome substitui o rótulo em todos os arquivos.</p>
+      <p class="exp">O Escriba separou as vozes como “Falante 1, 2…” e já sugeriu
+      os nomes que conseguiu descobrir. Confira e corrija; ao salvar, ele
+      <b>aprende a voz de cada pessoa</b> para reconhecê-la nas próximas reuniões.</p>
+      <p class="exp" id="revVozesInfo"></p>
       <div id="revFalantes"></div>
       <datalist id="listaPart"></datalist>
     </div>
@@ -625,6 +712,58 @@ const jsonOpts = (metodo, corpo) => ({
   method: metodo, headers: {"Content-Type":"application/json"}, body: JSON.stringify(corpo)
 });
 
+/* ---------- participantes em campos separados ---------- */
+let vozesConhecidas = [];
+function linhaParticipante(valor){
+  const d = document.createElement("div");
+  d.className = "part-linha";
+  d.innerHTML = `<input type="text" maxlength="80" list="listaVozesNomes"
+      placeholder="Nome completo, com a grafia correta" aria-label="Nome do participante">
+    <button type="button" aria-label="Remover participante">×</button>`;
+  d.querySelector("input").value = valor || "";
+  d.querySelector("button").addEventListener("click", () => d.remove());
+  return d;
+}
+function preencherParticipantes(sel, nomes){
+  const box = $(sel);
+  box.innerHTML = "";
+  (nomes.length ? nomes : [""]).forEach(n => box.appendChild(linhaParticipante(n)));
+}
+function lerParticipantes(sel){
+  return [...document.querySelectorAll(`${sel} input`)].map(i => i.value.trim()).filter(Boolean);
+}
+function addParticipante(sel){
+  const linha = linhaParticipante("");
+  $(sel).appendChild(linha);
+  linha.querySelector("input").focus();
+}
+
+async function carregarVozes(){
+  try {
+    const r = await fetch("/api/vozes");
+    vozesConhecidas = r.ok ? (await r.json()).pessoas : [];
+  } catch(_) { vozesConhecidas = []; }
+  let dl = document.getElementById("listaVozesNomes");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "listaVozesNomes"; document.body.appendChild(dl); }
+  dl.innerHTML = vozesConhecidas.map(p => `<option value="${esc(p.nome)}">`).join("");
+}
+function renderVozes(){
+  $("#listaVozes").innerHTML = vozesConhecidas.length
+    ? vozesConhecidas.map(p => `<div class="voz-linha">
+        <span>${esc(p.nome)}<small>${p.reunioes} reunião(ões) · ${p.minutos} min de fala</small></span>
+        <button class="btn perigo" type="button" data-esquecer="${esc(p.nome)}">Apagar voz</button>
+      </div>`).join("")
+    : '<p class="exp">Nenhuma voz ainda. Transcreva uma reunião no motor Local e confirme os nomes em “Revisar nomes”.</p>';
+  document.querySelectorAll("[data-esquecer]").forEach(b => b.addEventListener("click", async () => {
+    const nome = b.dataset.esquecer;
+    if (!confirm(`Apagar a voz de ${nome}? O Escriba deixará de reconhecê-la.`)) return;
+    const r = await fetch(`/api/vozes/${encodeURIComponent(nome)}`, { method: "DELETE" });
+    if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+    avisar(`Voz de ${nome} apagada.`, "ok");
+    await carregarVozes(); renderVozes();
+  }));
+}
+
 /* ---------- caixas de diálogo ---------- */
 document.querySelectorAll("dialog").forEach(d => {
   d.querySelectorAll("[data-fechar]").forEach(b => b.addEventListener("click", () => d.close()));
@@ -653,7 +792,7 @@ function enviar(file){
   const n = $("#falantes").value;
   if (n) { fd.append("min_speakers", n); fd.append("max_speakers", n); }
   fd.append("want_summary", $("#ata").checked);
-  fd.append("participants", $("#nomesUpload").value);
+  fd.append("participants", lerParticipantes("#partUpload").join("\n"));
 
   const box = $("#enviando");
   const fill = $("#barraFill");
@@ -899,6 +1038,13 @@ async function abrirPerfil(){
   escolherModoAss("desenho");          // o canvas só mede certo com o diálogo aberto
 }
 $("#btnPerfil").addEventListener("click", abrirPerfil);
+$("#btnVozes").addEventListener("click", async () => {
+  await carregarVozes(); renderVozes(); $("#dlgVozes").showModal();
+});
+$("#btnAddPartUpload").addEventListener("click", () => addParticipante("#partUpload"));
+$("#btnAddPartRev").addEventListener("click", () => addParticipante("#revPartLista"));
+preencherParticipantes("#partUpload", []);
+carregarVozes();
 $("#btnAvisoAss").addEventListener("click", abrirPerfil);
 
 $("#btnRemoverAss").addEventListener("click", async () => {
@@ -970,7 +1116,12 @@ function linhaCorrecao(de, para){
 
 function renderRevisao(){
   const d = revDados;
-  $("#revPart").value = (d.participants || []).join("\n");
+  preencherParticipantes("#revPartLista", d.participants || []);
+  const vi = d.vozes_info || {};
+  $("#revVozesInfo").textContent = vi.vozes
+    ? `Reconhecimento de vozes: ${vi.vozes === 1 ? "1 voz (uma pessoa só)" : vi.vozes + " vozes"}`
+      + ((vi.conhecidas || []).length ? ` · já conhecidas: ${vi.conhecidas.map(c => c.nome).join(", ")}` : "")
+    : "";
   $("#revTitulo").value = d.meeting.title || "";
   $("#revData").value = d.meeting.date || "";
   $("#revLocal").value = d.meeting.place || "";
@@ -981,6 +1132,7 @@ function renderRevisao(){
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
         <span class="qtd">${s.falas} falas · ${s.palavras} palavras</span></div>
+      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)} · ${esc(s.auto.detalhe)}</span>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
       <input type="text" list="listaPart" maxlength="80" data-label="${esc(s.label)}"
         value="${esc(s.nome || "")}" placeholder="Quem é? (opcional)"
@@ -1007,7 +1159,7 @@ $("#btnAddCorr").addEventListener("click", () => {
 });
 
 function coletarRevisao(){
-  const participants = $("#revPart").value.split(/[\n;]+/).map(s => s.trim()).filter(Boolean);
+  const participants = lerParticipantes("#revPartLista");
   const speaker_names = {};
   document.querySelectorAll("#revFalantes input[data-label]").forEach(i => {
     if (i.value.trim()) speaker_names[i.dataset.label] = i.value.trim();
@@ -1039,6 +1191,11 @@ $("#btnSalvarRev").addEventListener("click", async () => {
     estado.textContent = n
       ? `Salvo. ${n} sugestão(ões) de grafia nova(s) — marque as que quiser e salve de novo.`
       : "Salvo. Arquivos atualizados.";
+    const apr = revDados.vozes_aprendidas || [];
+    if (apr.length) {
+      estado.textContent += ` Vozes aprendidas: ${apr.join(", ")}.`;
+      carregarVozes();
+    }
     estado.className = "estado ok";
     atualizar();
     if (revDados.ata_desatualizada && cfg.ata_disponivel &&

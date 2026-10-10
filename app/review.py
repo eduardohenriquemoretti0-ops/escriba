@@ -168,6 +168,7 @@ def speakers_overview(job: jobs.Job) -> list[dict]:
         row = rows.setdefault(label, {
             "label": label,
             "nome": job.speaker_names.get(label, ""),
+            "auto": job.nomes_auto.get(label),
             "falas": 0, "palavras": 0, "primeira_fala": seg.start,
             "amostras": [],
         })

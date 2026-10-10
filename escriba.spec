@@ -11,7 +11,7 @@ for pkg in ("faster_whisper", "ctranslate2", "sherpa_onnx", "onnxruntime",
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hiddenimports += h
 hiddenimports += collect_submodules("app") + collect_submodules("uvicorn")
-hiddenimports += ["assemblyai", "anthropic", "markdown", "PIL"]
+hiddenimports += ["assemblyai", "anthropic", "markdown", "PIL", "faster_whisper.vad"]
 
 excludes = ["torch", "torchaudio", "whisperx", "pyannote", "tkinter", "matplotlib"]
 if sys.platform != "linux":
