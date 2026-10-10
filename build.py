@@ -26,7 +26,7 @@ def main() -> None:
     shutil.copytree(ROOT / "models" / "diarizacao", DIST / "models" / "diarizacao",
                     dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("*.tar.bz2", "sherpa-onnx-*",
-                                                  "3dspeaker*", "nemo*"))
+                                                  "3dspeaker*", "wespeaker*"))
     shutil.copy2(ROOT / ".env.example", DIST / ".env.example")
     shutil.copy2(ROOT / "LEIA-ME.txt", DIST / "LEIA-ME.txt")
     nome = f"Escriba-{platform.system().lower()}-{platform.machine().lower()}"

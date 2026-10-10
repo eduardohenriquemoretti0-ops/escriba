@@ -28,3 +28,7 @@ DICAS PARA MELHOR RESULTADO
   - Informe quantas pessoas falaram (mín./máx.): a separação de vozes melhora.
   - Tempo de processamento no motor local (CPU comum): cerca de 1x a duração
     do áudio. Uma reunião de 1 h leva por volta de 1 h.
+
+CRÉDITOS DOS MODELOS
+  Transcrição: OpenAI Whisper large-v3-turbo (MIT), versão CTranslate2 da Mobius Labs.
+  Falantes: NVIDIA NeMo TitaNet-small (CC-BY-4.0), via projeto sherpa-onnx (Apache-2.0).

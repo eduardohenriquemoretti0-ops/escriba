@@ -59,7 +59,7 @@ O pipeline imita o do AssemblyAI. Cada recurso tem um equivalente local:
 | modelo Universal | Whisper **large-v3-turbo** (int8, CPU) |
 | `punctuate` / `format_text` | pontuação e maiúsculas nativas do Whisper |
 | `keyterms_prompt` / `word_boost` | `hotwords` do Whisper com os participantes + `ESCRIBA_TERMOS` |
-| `speaker_labels` | embedding de voz por frase (WeSpeaker, ONNX) + agrupamento espectral |
+| `speaker_labels` | embedding de voz por frase (NeMo TitaNet, ONNX) + agrupamento espectral |
 | `speakers_expected` / `speaker_options` | mín./máx. de falantes no envio (padrão 1–10) |
 | `utterances` | frases do mesmo falante unidas em blocos |
 | filtro de ruído/silêncio | VAD Silero e limiares anti-alucinação do Whisper |

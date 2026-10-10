@@ -31,6 +31,9 @@ from . import diarize
 from .base import ProgressCB, Segment
 
 _lock = threading.Lock()
+
+# Silêncio (s) a partir do qual o mesmo falante começa um bloco novo.
+UTTERANCE_MAX_GAP = 10.0
 _whisper_cache: dict = {}
 _extractor_cache: dict = {}
 
@@ -184,8 +187,14 @@ class LocalEngine:
             audio, words, _extractor(),
             min_speakers=min_speakers, max_speakers=max_speakers)
 
-        return [
-            Segment(start=s.start, end=s.end,
-                    speaker=diarize.speaker_label(s.speaker), text=s.text)
-            for s in sentences
-        ]
+        # "Utterances" como no AssemblyAI: o bloco de um falante só termina
+        # quando outra pessoa fala (ou após um silêncio longo).
+        out: list[Segment] = []
+        for s in sentences:
+            label = diarize.speaker_label(s.speaker)
+            if out and out[-1].speaker == label and s.start - out[-1].end <= UTTERANCE_MAX_GAP:
+                out[-1].text = f"{out[-1].text} {s.text}"
+                out[-1].end = s.end
+            else:
+                out.append(Segment(start=s.start, end=s.end, speaker=label, text=s.text))
+        return out

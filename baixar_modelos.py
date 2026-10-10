@@ -17,12 +17,14 @@ from pathlib import Path
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 
 # Modelo de voz (embedding de falante) usado pela diarização local.
-# WeSpeaker ResNet34 (Apache-2.0), distribuído pelo projeto sherpa-onnx.
+# NVIDIA NeMo TitaNet-small (CC-BY-4.0), convertido p/ ONNX pelo projeto sherpa-onnx.
+# Escolhido num teste com reunião real: o mais rápido e o que mais concordou com
+# os outros dois modelos avaliados (WeSpeaker ResNet34 e 3D-Speaker ERes2Net).
 DIARIZATION = {
     "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
-           "speaker-recongition-models/wespeaker_en_voxceleb_resnet34_LM.onnx",
-    "file": MODELS_DIR / "diarizacao" / "wespeaker_en_voxceleb_resnet34_LM.onnx",
-    "sha256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012",
+           "speaker-recongition-models/nemo_en_titanet_small.onnx",
+    "file": MODELS_DIR / "diarizacao" / "nemo_en_titanet_small.onnx",
+    "sha256": "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e",
 }
 
 

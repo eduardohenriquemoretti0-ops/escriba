@@ -8,6 +8,6 @@ if [[ ! -x .venv/bin/python ]]; then
   .venv/bin/pip install -q --upgrade pip
   .venv/bin/pip install -q -r requirements.txt
 fi
-[[ -f models/diarizacao/wespeaker_en_voxceleb_resnet34_LM.onnx && -f models/whisper/large-v3-turbo/model.bin ]] \
+[[ -f models/diarizacao/nemo_en_titanet_small.onnx && -f models/whisper/large-v3-turbo/model.bin ]] \
   || .venv/bin/python baixar_modelos.py
 exec .venv/bin/python escriba_app.py

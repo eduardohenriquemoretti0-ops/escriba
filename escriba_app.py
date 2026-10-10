@@ -94,7 +94,8 @@ def main() -> None:
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
         webview.create_window("Escriba — transcrição de reuniões", url,
                               width=1280, height=860, min_size=(900, 600))
-        webview.start(private_mode=False)
+        gui = "qt" if sys.platform.startswith("linux") else None   # Windows: WebView2
+        webview.start(gui=gui, private_mode=False)
 
     server.should_exit = True
 

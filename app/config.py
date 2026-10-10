@@ -46,7 +46,7 @@ WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
 CPU_THREADS = int(os.getenv("ESCRIBA_CPU_THREADS", str(os.cpu_count() or 4)))
 DIARIZATION_MODEL = os.getenv(
     "ESCRIBA_DIARIZATION_MODEL",
-    str(MODELS_DIR / "diarizacao" / "wespeaker_en_voxceleb_resnet34_LM.onnx"))
+    str(MODELS_DIR / "diarizacao" / "nemo_en_titanet_small.onnx"))
 # Termos que o Whisper deve preferir em toda reunião (empresas, produtos...)
 # separados por vírgula. Os participantes de cada reunião entram sozinhos.
 EXTRA_TERMS = [t.strip() for t in os.getenv("ESCRIBA_TERMOS", "").split(",") if t.strip()]
