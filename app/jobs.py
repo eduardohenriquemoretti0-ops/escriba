@@ -7,6 +7,7 @@ FIX M4/M5: store protegido por lock, com limpeza periódica (sem vazamento).
 from __future__ import annotations
 
 import threading
+from typing import Any
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,7 +36,7 @@ class Job:
     def touch(self) -> None:
         self.updated_at = time.time()
 
-    def public(self) -> dict:
+    def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "status": self.status.value,

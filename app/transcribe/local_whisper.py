@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ..config import settings
 from ..utils import log
@@ -12,7 +13,7 @@ class LocalWhisperEngine(TranscribeEngine):
     name = "local-faster-whisper"
 
     def __init__(self) -> None:
-        self._model = None  # lazy: só carrega quando for transcrever
+        self._model: Any = None  # lazy: só carrega quando for transcrever
 
     def available(self) -> bool:
         try:
@@ -21,7 +22,7 @@ class LocalWhisperEngine(TranscribeEngine):
         except Exception:
             return False
 
-    def _load(self):
+    def _load(self) -> Any:
         if self._model is None:
             import os
 

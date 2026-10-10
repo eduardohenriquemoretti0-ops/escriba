@@ -9,9 +9,19 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
@@ -27,7 +37,9 @@ limiter = RateLimiter(settings.ratelimit_max, settings.ratelimit_window_sec)
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
+async def rate_limit_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """FIX C4 — rate limit ANTES do auth, por IP+rota, em todos os métodos."""
     client_ip = request.client.host if request.client else "desconhecido"
     key = f"{client_ip}:{request.url.path}"
@@ -47,7 +59,7 @@ def require_auth(authorization: str = Header(default="")) -> None:
 
 
 @app.get("/health")
-def health() -> dict:
+def health() -> dict[str, Any]:
     return {"status": "ok", "version": app.version}
 
 
@@ -56,7 +68,7 @@ async def transcrever(
     arquivo: UploadFile,
     ata: bool = False,
     _: None = Depends(require_auth),
-) -> dict:
+) -> dict[str, Any]:
     """Recebe um áudio, transcreve (e opcionalmente gera a ata)."""
     max_bytes = settings.max_upload_mb * 1024 * 1024
     job = store.create(filename=safe_slug(arquivo.filename or "audio"))
@@ -91,7 +103,7 @@ async def transcrever(
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str, _: None = Depends(require_auth)) -> dict:
+def get_job(job_id: str, _: None = Depends(require_auth)) -> dict[str, Any]:
     if not valid_job_id(job_id):  # FIX M2
         raise HTTPException(status_code=400, detail="job_id inválido")
     job = store.get(job_id)
@@ -111,7 +123,7 @@ def get_transcript(job_id: str, _: None = Depends(require_auth)) -> str:
 
 
 @app.delete("/jobs/{job_id}")
-def delete_job(job_id: str, _: None = Depends(require_auth)) -> dict:
+def delete_job(job_id: str, _: None = Depends(require_auth)) -> dict[str, Any]:
     if not valid_job_id(job_id):
         raise HTTPException(status_code=400, detail="job_id inválido")
     if not store.delete(job_id):
