@@ -202,7 +202,10 @@ def test_sugestao_por_conversa_so_aprende_o_que_for_confirmado(cliente):
     assert job.nomes_auto["Falante 1"]["nome"] == "Rosilaine Andrade"
     assert job.nomes_auto["Falante 2"]["fonte"] == "eliminacao"
     txt = job.path("transcricao.txt").read_text(encoding="utf-8")
-    assert "Falante 1 · " in txt and "Rosilaine" not in txt, "arquivo sem confirmação não leva o nome"
+    # a exibição usa a sugestão (pedido do Eduardo); a memória de vozes continua
+    # aprendendo só o que for confirmado (ver o restante deste teste)
+    assert "Rosilaine Andrade · " in txt and "Falante 1 · " not in txt, \
+        "transcrição deve mostrar a sugestão como nome"
 
     # 2) a tela mostra a sugestão com o campo vazio
     rv = cliente.get(f"/api/jobs/{jid}/review").json()
@@ -219,8 +222,10 @@ def test_sugestao_por_conversa_so_aprende_o_que_for_confirmado(cliente):
     assert r["vozes_aprendidas"] == ["Rosilaine Andrade"]
     assert [p["nome"] for p in vozes.list_people()] == ["Rosilaine Andrade"]
     txt = job.path("transcricao.txt").read_text(encoding="utf-8")
-    assert "Rosilaine Andrade · " in txt and "Falante 2 · " in txt
-    assert "Eduardo" not in txt
+    # o 2º falante ainda não foi confirmado: a sugestão aparece no arquivo, mas
+    # a memória de vozes não aprende o que não foi confirmado
+    assert "Rosilaine Andrade · " in txt and "Eduardo Moretti · " in txt
+    assert [p["nome"] for p in vozes.list_people()] == ["Rosilaine Andrade"]
 
 
 def test_sugestao_por_voz_nao_reforca_a_memoria(cliente):

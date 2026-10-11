@@ -87,10 +87,15 @@ def run_ata(job_id: str) -> None:
     jobs.update(job_id, begin)
 
     try:
-        if not config.ANTHROPIC_API_KEY:
-            raise RuntimeError("ANTHROPIC_API_KEY ausente no .env.")
-        from . import summary
-        ata = summary.generate_ata(review.transcript_txt(job), job.participants)
+        if config.ANTHROPIC_API_KEY:
+            from . import summary
+            ata = summary.generate_ata(review.transcript_txt(job), job.participants)
+            origem = jobs.ORIGEM_IA
+        else:
+            # sem chave: a ata sai da estrutura da reunião, offline
+            from . import ata_local
+            ata = ata_local.gera(job)
+            origem = jobs.ORIGEM_LOCAL
         job.path("ata.md").write_text(ata, encoding="utf-8")
         for stale in ("ata.pdf", "ata.pdf.key"):
             job.path(stale).unlink(missing_ok=True)
@@ -98,6 +103,7 @@ def run_ata(job_id: str) -> None:
         def ok(j: jobs.Job) -> None:
             j.ata_status = jobs.ATA_PRONTA
             j.ata_error = ""
+            j.ata_origem = origem
             j.outputs = review.outputs_for(j)
         jobs.update(job_id, ok)
     except Exception as exc:  # noqa: BLE001
@@ -132,13 +138,15 @@ def _process(job: jobs.Job) -> None:
         audio = media.to_mp3_asr(original, job.path("audio.mp3"))
 
     # 2) Transcrever + diarizar (os nomes informados viram vocabulário)
+    # participante digitado com erro vale pelo nome da lista ("José Edaurdo" -> "José Eduardo")
+    participantes = irmaos.corrige_participantes(job.participants, irmaos.listar_seguro(log))
     segments = engine.transcribe(
         audio,
         language=job.language or None,
         min_speakers=job.min_speakers,
         max_speakers=job.max_speakers,
         progress=job.set_phase,
-        vocabulary=job.participants or None,
+        vocabulary=participantes or None,
     )
     if not segments:
         raise RuntimeError("O engine não retornou nenhum segmento de fala.")
@@ -151,6 +159,7 @@ def _process(job: jobs.Job) -> None:
         job.path("vozes.json").write_text(json.dumps(voices), encoding="utf-8")
     job.vozes_info = getattr(engine, "scan", None) or {}
     job.falantes_estudo = getattr(engine, "estudo", None) or []
+    job.estudo_info = getattr(engine, "estudo_info", None) or {}
     job.save()
 
     # 3) Dar nome às vozes (sugestões; o usuário confirma na revisão)
@@ -173,21 +182,22 @@ def _process(job: jobs.Job) -> None:
 
     # 5) Ata automática (opcional)
     if job.want_summary:
-        if config.ANTHROPIC_API_KEY:
-            job.set_phase("Gerando ata da reunião (IA)")
-            run_ata(job.id)
-        else:
-            def no_key(j: jobs.Job) -> None:
-                j.ata_status = jobs.ATA_ERRO
-                j.ata_error = ("Ata não gerada: ANTHROPIC_API_KEY ausente no "
-                               ".env (a transcrição foi concluída normalmente).")
-            jobs.update(job.id, no_key)
+        job.set_phase("Gerando ata da reunião (IA)" if config.ANTHROPIC_API_KEY
+                      else "Gerando ata da reunião")
+        run_ata(job.id)
 
     def finish(j: jobs.Job) -> None:
         j.status = jobs.STATUS_DONE
         j.finished_at = time.time()
         j.phase = "Concluído"
     jobs.update(job.id, finish)
+
+
+def _conhecido(nome: str, entradas, participantes) -> bool:
+    """Nome que consta na lista de irmãos (inclusive por grafia) ou nos participantes."""
+    if irmaos.corrige_participante(nome, entradas) is not None:
+        return True
+    return nomes._participante_de(nome, list(participantes)) is not None
 
 
 def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
@@ -204,8 +214,9 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
     display = exports.speaker_map(segments)                  # "A" -> "Falante 1"
     by_voice = vozes.match({lab: v["vetor"] for lab, v in voices.items()})
     strong = {lab for lab, (_, sim) in by_voice.items() if sim >= vozes.MATCH_STRONG}
-    candidates = [*job.participants, *(p["nome"] for p in vozes.list_people())]
     entradas = irmaos.listar_seguro(log)                     # lista de irmãos (só nomes)
+    participantes = irmaos.corrige_participantes(job.participants, entradas)
+    candidates = [*participantes, *(p["nome"] for p in vozes.list_people())]
     by_talk = nomes.infer(segments, candidates, exclude=strong, irmaos=entradas)
 
     auto: dict = {}
@@ -226,8 +237,11 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
         label = display[pessoa["rotulo"]]
         if auto.get(label, {}).get("fonte") == "voz":
             continue
-        auto[label] = {"nome": pessoa["nome"], "fonte": "turno",
-                       "detalhe": pessoa["origem"] or "estrutura do estudo"}
+        detalhe = pessoa["origem"] or "estrutura do estudo"
+        if not _conhecido(pessoa["nome"], entradas, participantes):
+            # nome fora da lista e dos participantes: sugestão de confiança menor
+            detalhe += " · fora da lista e dos participantes: confirme"
+        auto[label] = {"nome": pessoa["nome"], "fonte": "turno", "detalhe": detalhe}
 
     # homônimos na lista: o nome é só sugestão, a observação diz para confirmar pela voz
     for label, info in auto.items():
@@ -245,7 +259,7 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
 
     # 3º por eliminação: 1 falante sem nome + 1 participante livre (sugestão)
     nomeados = {**job.speaker_names, **{lab: i["nome"] for lab, i in auto.items()}}
-    for label, nome in nomes.por_eliminacao(display.values(), job.participants,
+    for label, nome in nomes.por_eliminacao(display.values(), participantes,
                                             nomeados).items():
         auto[label] = {"nome": nome, "fonte": "eliminacao",
                        "detalhe": nomes.ELIMINACAO_DETALHE}

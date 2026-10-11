@@ -35,6 +35,8 @@ STATUS_ERROR = "erro"
 ATA_GERANDO = "gerando"
 ATA_PRONTA = "pronta"
 ATA_ERRO = "erro"
+ORIGEM_IA = "ia"          # ata feita pela API (há ANTHROPIC_API_KEY)
+ORIGEM_LOCAL = "local"  # ata sem API: estrutura da reunião
 
 
 @dataclass
@@ -64,11 +66,13 @@ class Job:
     meeting: dict = field(default_factory=dict)             # title/date/place
     ata_status: str = ""                                    # gerando|pronta|erro
     ata_error: str = ""                                     # motivo, se ata_status=erro
+    ata_origem: str = ""                                    # ia (API) | local (sem API)
     email_log: list = field(default_factory=list)           # envios feitos
 
     # ---- reconhecimento de vozes e nomes (motor local) ----------------------
     vozes_info: dict = field(default_factory=dict)          # resumo da fase 1
     falantes_estudo: list = field(default_factory=list)     # pessoas do estudo (turnos)
+    estudo_info: dict = field(default_factory=dict)         # estrutura: parte 1, dirigente, leitor
     nomes_auto: dict = field(default_factory=dict)          # "Falante 1" -> {nome, fonte, detalhe}
 
     # ---- caminhos ----------------------------------------------------------

@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from . import discurso
 from . import irmaos as _irmaos
 from . import nomes
 from .engines.base import CORO_LABEL, Segment
@@ -59,12 +60,27 @@ class Estrutura:
     dirigentes: frozenset = frozenset()   # todos que chamam/agradecem (inclui o principal)
 
 
-def _na_lista(nome: Optional[str], entradas) -> tuple[Optional[str], bool]:
-    """(nome da lista de irmãos com grafia corrigida, é ambíguo?). Sem lista, devolve como veio."""
-    if not nome or not entradas:
+def _na_lista(nome: Optional[str], entradas,
+              participantes=()) -> tuple[Optional[str], bool]:
+    """(nome da lista de irmãos com grafia corrigida, é ambíguo?). Sem lista, devolve como veio.
+
+    Depois da lista, os participantes digitados: grafia parecida (0,75, o mesmo
+    limiar dos nomes informados na conversa) vale pelo participante. Assim
+    "Modemir" vira "Ademir" quando Ademir foi informado."""
+    if not nome or not (entradas or participantes):
         return nome, False
-    achado = _irmaos.corrige(nome, entradas)
-    return (achado.nome if achado.casou else nome), achado.ambiguo
+    if entradas:
+        achado = _irmaos.corrige(nome, entradas)
+        if achado.casou:
+            return achado.nome, achado.ambiguo
+    if participantes:
+        known: dict[str, str] = {}
+        for p in participantes:
+            known.setdefault(_irmaos.fold(p), p)
+        melhor = nomes._canonical(nome, {}, known)
+        if melhor:
+            return melhor, False
+    return nome, False
 
 
 @dataclass
@@ -103,7 +119,7 @@ class Pessoa:
 # --------------------------------------------------------------------------
 # 1) Estrutura da reunião
 # --------------------------------------------------------------------------
-def estrutura(segs: list[Segment], entradas=()) -> Optional[Estrutura]:
+def estrutura(segs: list[Segment], entradas=(), participantes=()) -> Optional[Estrutura]:
     """Dirigente, leitor e início do estudo. None se a reunião não tem a estrutura."""
     segs = [s for s in segs if s.speaker != CORO_LABEL]
     eventos = nomes._eventos_posicionais(segs)
@@ -137,7 +153,7 @@ def estrutura(segs: list[Segment], entradas=()) -> Optional[Estrutura]:
     for s in segs:
         m = _DIRIGENTE_NOME.search(s.text)
         if m:
-            nome_d, _ = _na_lista(m.group(1), entradas)
+            nome_d, _ = _na_lista(m.group(1), entradas, participantes)
             break
     return Estrutura(d, leitor, inicio, len(eventos), nome_d, dirigentes)
 
@@ -183,7 +199,7 @@ def _turnos(segs: list[Segment], est: Estrutura,
 
 
 def _nomeia(turnos: list[Turno], segs: list[Segment], idx: list[int],
-            est: Estrutura, entradas=()) -> None:
+            est: Estrutura, entradas=(), participantes=()) -> None:
     pos = {i: k for k, i in enumerate(idx)}
     for t in turnos:
         k = pos[t.idx[0]]
@@ -193,11 +209,11 @@ def _nomeia(turnos: list[Turno], segs: list[Segment], idx: list[int],
         if antes is not None and antes.speaker in est.dirigentes:
             chamadas = [n for tp, n in nomes.eventos_do_texto(antes.text) if tp == "chamada"]
             t.chamado = chamadas[0] if chamadas else None   # a 1ª chamada é a do turno seguinte
-            t.chamado, _ = _na_lista(t.chamado, entradas)
+            t.chamado, _ = _na_lista(t.chamado, entradas, participantes)
         if depois is not None and depois.speaker in est.dirigentes:
             agr = [n for tp, n in nomes.eventos_do_texto(depois.text) if tp == "agradecimento"]
             t.agradecido = agr[0] if agr else None
-            t.agradecido, _ = _na_lista(t.agradecido, entradas)
+            t.agradecido, _ = _na_lista(t.agradecido, entradas, participantes)
         c, a = t.chamado, t.agradecido
         if antes is not None and antes.speaker in est.dirigentes and _ZOOM.search(antes.text):
             t.zoom = True
@@ -216,13 +232,13 @@ def _nomeia(turnos: list[Turno], segs: list[Segment], idx: list[int],
         if t.zoom and t.origem:
             t.origem += " (pelo Zoom)"
         if t.nome and entradas:
-            t.ambiguo = _na_lista(t.nome, entradas)[1]
+            t.ambiguo = _na_lista(t.nome, entradas, participantes)[1]
             if t.ambiguo and t.origem:
                 t.origem += " (homônimos na lista: confirme pela voz)"
 
 
 def _oracao(segs: list[Segment], est: Estrutura,
-            entradas=()) -> Optional[tuple[list[int], str, str]]:
+            entradas=(), participantes=()) -> Optional[tuple[list[int], str, str]]:
     """Oração final: (índices dos blocos, nome de quem ora, quem chamou).
 
     A chamada ("o irmão X ... oração") vem depois do início do estudo. O bloco
@@ -234,7 +250,7 @@ def _oracao(segs: list[Segment], est: Estrutura,
         m = _ORACAO_CHAMADA.search(s.text)
         if m is None:
             continue
-        nome, _ = _na_lista(m.group(1), entradas)
+        nome, _ = _na_lista(m.group(1), entradas, participantes)
         if nome is None or nomes._nao_e_nome(nome.split()[0]):
             continue
         chamador = s.speaker
@@ -291,26 +307,80 @@ def medir_separacao(turnos: list[Turno]) -> tuple[list[float], list[float]]:
     return mesmo, diferente
 
 
+PAUSA_ORADOR_SECONDS = 30.0   # o discurso é um bloco só; pausa maior que isso não funde
+
+
+def _une_pessoas(pessoas: list[Pessoa]) -> list[Pessoa]:
+    """Mesma pessoa em mais de um papel (ex.: presidente e comentarista): uma linha só.
+
+    Junta pelo rótulo: presidente e comentarista com o mesmo nome têm o mesmo
+    rótulo na saída, então viram um falante com os dois papéis."""
+    por_rotulo: dict[str, Pessoa] = {}
+    for p in pessoas:
+        atual = por_rotulo.get(p.rotulo)
+        if atual is None:
+            por_rotulo[p.rotulo] = p
+            continue
+        papeis = list(dict.fromkeys([*atual.papel.split(" + "), *p.papel.split(" + ")]))
+        origens = [o for o in dict.fromkeys([atual.origem, p.origem]) if o]
+        por_rotulo[p.rotulo] = replace(
+            atual, papel=" + ".join(papeis), origem="; ".join(origens),
+            comentarios=atual.comentarios + p.comentarios,
+            segundos=round(atual.segundos + p.segundos, 1),
+            nomeada=atual.nomeada or p.nomeada)
+    return list(por_rotulo.values())
+
+
+def _funde_rotulo(out: list[Segment], rotulo: str, pausa: float) -> list[Segment]:
+    """Funde blocos seguidos do mesmo rótulo (sem outra pessoa no meio)."""
+    fundido: list[Segment] = []
+    for s in out:
+        if (fundido and s.speaker == rotulo and fundido[-1].speaker == rotulo
+                and s.start - fundido[-1].end <= pausa):
+            a = fundido[-1]
+            fundido[-1] = replace(a, end=max(a.end, s.end), text=f"{a.text} {s.text}")
+        else:
+            fundido.append(s)
+    return fundido
+
+
 def reatribui(segs: list[Segment],
               embed: Callable[[float, float], np.ndarray],
               limiar: float = LIMIAR_VOZ,
-              irmaos=()) -> tuple[list[Segment], list[Pessoa], dict]:
-    """Troca o rótulo dos blocos do estudo pela pessoa de cada turno.
+              irmaos=(),
+              participantes=()) -> tuple[list[Segment], list[Pessoa], dict]:
+    """Troca o rótulo dos blocos pela pessoa de cada um.
 
     `embed(inicio, fim)` devolve a voz (vetor normalizado) de um trecho.
     `irmaos`: entradas da lista de irmãos (corrigem grafia e não fundem nomes exatos).
-    Devolve (blocos, pessoas, resumo). Sem estrutura: devolve tudo igual.
+    `participantes`: nomes digitados no job (pelo nome da lista, se houver erro).
+    Ordem: 1) fragmentos curtos vão para o falante do bloco longo em volta;
+    2) parte 1 (presidente antes/depois, orador entre anúncio e agradecimento);
+    3) estudo bíblico (turnos). Devolve (blocos, pessoas, resumo). Sem nada
+    disso: devolve os blocos como vieram.
     """
     entradas = list(irmaos)
-    protegidos = _irmaos.nomes_protegidos(entradas)
-    est = estrutura(segs, entradas)
-    if est is None:
+    protegidos = _irmaos.nomes_protegidos(entradas)     # só a lista: participante não protege
+    est = estrutura(segs, entradas, participantes)
+    est_inicio = est.inicio if est is not None else None
+    p1 = discurso.parte1(segs, entradas, participantes, est_inicio)
+    absorvidos = 0
+    if p1 is not None:
+        # fragmentos só dentro do discurso (anúncio até o agradecimento + 1 min);
+        # depois reconhece a parte 1 sobre os blocos já corrigidos
+        janela = (p1.anuncio_inicio, p1.agradecimento_inicio + 60.0)
+        segs, absorvidos = discurso.absorve_fragmentos(segs, janela)
+        p1 = discurso.parte1(segs, entradas, participantes, est_inicio)
+    if est is None and p1 is None:
         return segs, [], {"ativo": False}
 
-    bloco = _oracao(segs, est, entradas)
-    bloco_idx = frozenset(bloco[0]) if bloco else frozenset()
-    turnos, idx = _turnos(segs, est, bloco_idx)
-    _nomeia(turnos, segs, idx, est, entradas)
+    if est is not None:
+        bloco = _oracao(segs, est, entradas, participantes)
+        bloco_idx = frozenset(bloco[0]) if bloco else frozenset()
+        turnos, idx = _turnos(segs, est, bloco_idx)
+        _nomeia(turnos, segs, idx, est, entradas, participantes)
+    else:
+        bloco, bloco_idx, turnos, idx = None, frozenset(), [], []
 
     # nomes canônicos (Admir/Ademir viram um só); nomes exatos da lista não se fundem
     nomes_brutos = [t.nome for t in turnos if t.nome]
@@ -375,28 +445,48 @@ def reatribui(segs: list[Segment],
         if t.pessoa not in ordem:
             ordem[t.pessoa] = f"P{len(ordem) + 1}"
 
-    # oração final: uma pessoa só. Liga-se ao orador (cluster do discurso) só
-    # se a voz passar do limiar; senão fica como "oração", fora dos comentários.
+    # parte 1: presidente e orador são pessoas próprias (mesmo nome = mesma pessoa)
+    chave_pres = f"nome:{p1.presidente}" if p1 and p1.presidente else "presidente"
+    chave_ora = f"nome:{p1.orador}" if p1 else "orador"
+    if p1:
+        ordem.setdefault(chave_pres, f"P{len(ordem) + 1}")
+        ordem.setdefault(chave_ora, f"P{len(ordem) + 1}")
+
+    # oração final: uma pessoa só. Se quem ora é o orador do discurso, é a mesma
+    # pessoa. Senão, liga-se ao orador pela voz (só sem parte 1), se passar do limiar.
     oracao_info = None
     pessoa_oracao = None
     if bloco:
         _, nome_or, chamador = bloco
-        voz_disc, dominante = _voz_do_discurso(segs, est, embed)
-        sim = None
-        if voz_disc is not None:
-            voz_or = embed(segs[bloco[0][0]].start, segs[bloco[0][-1]].end)
-            sim = float(voz_disc @ voz_or)
-        ligada = sim is not None and sim >= limiar
-        if ligada:
-            pessoa_oracao = f"orador:{dominante}"
-            ordem[pessoa_oracao] = dominante                 # mesmo rótulo do discurso
+        if p1 is not None and discurso._mesma_pessoa(nome_or, p1.orador):
+            pessoa_oracao = chave_ora
+            oracao_info = {"nome": nome_or, "chamador": chamador,
+                           "blocos": len(bloco[0]),
+                           "segundos": round(sum(segs[i].end - segs[i].start
+                                                 for i in bloco[0]), 1),
+                           "similaridade_discurso": None,
+                           "ligada_ao_orador": True,
+                           "mesmo_orador_do_discurso": True}
         else:
-            pessoa_oracao = f"oracao:{nome_or}"
-            ordem[pessoa_oracao] = f"P{len(ordem) + 1}"
-        oracao_info = {"nome": nome_or, "chamador": chamador, "blocos": len(bloco[0]),
-                       "segundos": round(sum(segs[i].end - segs[i].start for i in bloco[0]), 1),
-                       "similaridade_discurso": None if sim is None else round(sim, 3),
-                       "ligada_ao_orador": ligada}
+            voz_disc, dominante = (None, None) if p1 is not None else \
+                _voz_do_discurso(segs, est, embed)
+            sim = None
+            if voz_disc is not None:
+                voz_or = embed(segs[bloco[0][0]].start, segs[bloco[0][-1]].end)
+                sim = float(voz_disc @ voz_or)
+            ligada = sim is not None and sim >= limiar
+            if ligada:
+                pessoa_oracao = f"orador:{dominante}"
+                ordem[pessoa_oracao] = dominante                 # mesmo rótulo do discurso
+            else:
+                pessoa_oracao = f"oracao:{nome_or}"
+                ordem[pessoa_oracao] = f"P{len(ordem) + 1}"
+            oracao_info = {"nome": nome_or, "chamador": chamador, "blocos": len(bloco[0]),
+                           "segundos": round(sum(segs[i].end - segs[i].start
+                                                 for i in bloco[0]), 1),
+                           "similaridade_discurso": None if sim is None else round(sim, 3),
+                           "ligada_ao_orador": ligada,
+                           "mesmo_orador_do_discurso": False}
 
     out = list(segs)
     for t in turnos:
@@ -405,11 +495,36 @@ def reatribui(segs: list[Segment],
     if bloco:
         for i in bloco[0]:
             out[i] = replace(segs[i], speaker=ordem[pessoa_oracao])
+    if p1 is not None:
+        for i in p1.indices_presidente:
+            out[i] = replace(segs[i], speaker=ordem[chave_pres])
+        for i in p1.indices_orador:
+            out[i] = replace(segs[i], speaker=ordem[chave_ora])
+        out = _funde_rotulo(out, ordem[chave_ora], PAUSA_ORADOR_SECONDS)
 
-    resumo_pessoas = _pessoas(turnos, segs, idx, est, ordem, pessoas)
-    if bloco:
+    resumo_pessoas = (_pessoas(turnos, segs, idx, est, ordem, pessoas)
+                      if est is not None else [])
+    if p1 is not None:
+        blocos_pres = [s for s in out if s.speaker == ordem[chave_pres]]
+        blocos_ora = [s for s in out if s.speaker == ordem[chave_ora]]
+        resumo_pessoas.append(Pessoa(
+            ordem[chave_pres], p1.presidente or "Presidente", "presidente",
+            "observação 'presidente' na lista de irmãos" if p1.presidente
+            else "sem nome na lista de irmãos (observação 'presidente')",
+            0, round(sum(s.end - s.start for s in blocos_pres), 1),
+            bool(p1.presidente)))
+        origem_ora = f"anúncio no texto (confiança {p1.orador_confianca})"
+        if p1.tema:
+            origem_ora += f"; tema: {p1.tema}"
+        resumo_pessoas.append(Pessoa(
+            ordem[chave_ora], p1.orador, "orador", origem_ora, 0,
+            round(sum(s.end - s.start for s in blocos_ora), 1), True))
+    if bloco and oracao_info is not None:
         _, nome_or, _ = bloco
-        if oracao_info["ligada_ao_orador"]:
+        if oracao_info["mesmo_orador_do_discurso"]:
+            papel = "orador"
+            origem = "oração final, mesma pessoa do discurso"
+        elif oracao_info["ligada_ao_orador"]:
             papel = "orador"
             origem = (f"oração final; voz {oracao_info['similaridade_discurso']:.2f} "
                       "parecida com a do discurso (confirme pela voz)")
@@ -421,17 +536,24 @@ def reatribui(segs: list[Segment],
                            f"(abaixo de {limiar:.2f}: não ligada ao orador)")
         resumo_pessoas.append(Pessoa(ordem[pessoa_oracao], nome_or, papel, origem, 0,
                                      oracao_info["segundos"], True))
+    resumo_pessoas = _une_pessoas(resumo_pessoas)
+
     stats = {
         "ativo": True,
-        "dirigente": est.dirigente,
-        "leitor": est.leitor,
-        "inicio": est.inicio,
+        "dirigente": est.dirigente if est is not None else None,
+        "leitor": est.leitor if est is not None else None,
+        "inicio": est.inicio if est is not None else None,
         "turnos": len(turnos),
         "turnos_com_nome": sum(1 for t in turnos if t.nome),
         "discordancias": sum(1 for t in turnos if t.discordancia),
-        "comentaristas": sum(1 for p in resumo_pessoas if p.papel == "comentarista"),
+        "comentaristas": sum(1 for p in resumo_pessoas if "comentarista" in p.papel),
         "limiar_voz": limiar,
         "oracao": oracao_info,
+        "parte1": (discurso.resumo(
+            p1,
+            blocos_orador=sum(1 for s in out if s.speaker == ordem[chave_ora]),
+            blocos_presidente=sum(1 for s in out if s.speaker == ordem[chave_pres]),
+            absorvidos=absorvidos) if p1 is not None else None),
     }
     return out, resumo_pessoas, stats
 

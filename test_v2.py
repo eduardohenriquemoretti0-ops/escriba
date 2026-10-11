@@ -226,7 +226,8 @@ def main() -> None:
 
             # ---- config / perfil vazio --------------------------------------
             cfg = client.get("/api/config").json()
-            assert cfg == {"ata_disponivel": True, "email_configurado": True, "whisperx_instalado": False}, cfg
+            assert cfg == {"ata_disponivel": True, "ata_ia": True, "email_configurado": True,
+                           "whisperx_instalado": False}, cfg
             p0 = client.get("/api/profile").json()
             assert p0["tem_assinatura"] is False and p0["nome"] == ""
             assert client.get("/api/profile/signature.png").status_code == 404
@@ -268,7 +269,8 @@ def main() -> None:
             assert not any(s["de"] == "Rosilene" for s in rv["suggestions"])
 
             txt = client.get(f"/api/jobs/{jid}/file/txt").text
-            assert "Rosilaine Andrade · 00:00:00" in txt and "Falante 2 · 00:00:06" in txt
+            # o 2º falante tem sugestão (Eduardo) e aparece com ela, sem confirmação
+            assert "Rosilaine Andrade · 00:00:00" in txt and "Eduardo Moretti · 00:00:06" in txt, txt[:700]
             assert "Rosilene" not in txt and "Bom dia, Rosilaine." in txt
             raw = json.loads((config.JOBS_DIR / jid / "segmentos.json").read_text())
             assert "Rosilene" in raw[0]["text"], "o cru nunca pode ser alterado"
@@ -375,9 +377,10 @@ def main() -> None:
             assert {k: v["nome"] for k, v in j2["nomes_auto"].items()} == {
                 "Falante 1": "Rosilene", "Falante 2": "Eduardo"}, j2["nomes_auto"]
             assert j2["nomes_auto"]["Falante 1"]["fonte"] == "conversa"
-            assert "Falante 1" in sem and "Falante 2" in sem
+            # sugestão sai nas saídas como nome (sem marca de confirmada)
+            assert "Rosilene" in sem and "Eduardo" in sem and "Falante 1" not in sem
             txt2 = client.get(f"/api/jobs/{jid2}/file/txt").text
-            assert "Falante 1 · 00:00:00" in txt2 and "Rosilene · " not in txt2, txt2
+            assert "Rosilene · 00:00:00" in txt2 and "Falante 1 · " not in txt2, txt2
             # o usuário confirma na revisão: aí o nome entra nas saídas
             rv2 = client.put(f"/api/jobs/{jid2}/review", json={
                 "speaker_names": {"Falante 1": "Rosilene", "Falante 2": "Eduardo"}}).json()
@@ -391,8 +394,11 @@ def main() -> None:
             assert client.post(f"/api/jobs/{jid2}/ata").status_code == 200
             j2 = esperar(client, jid2, "ata_status", ("pronta", "erro"))
             assert j2["ata_status"] == "pronta" and "ata_pdf" in j2["outputs"], j2
+            # sem chave a ata também sai, localmente (sem API)
             with patch("app.config.ANTHROPIC_API_KEY", ""):
-                assert client.post(f"/api/jobs/{jid2}/ata").status_code == 400
+                assert client.post(f"/api/jobs/{jid2}/ata").status_code == 200
+                j3 = esperar(client, jid2, "ata_status", ("pronta", "erro"))
+                assert j3["ata_status"] == "pronta" and j3["ata_origem"] == "local", j3
 
             # ---- e-mail ----------------------------------------------------------
             st = client.get("/api/email/status").json()

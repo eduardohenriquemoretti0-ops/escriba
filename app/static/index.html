@@ -709,7 +709,7 @@ const lista = $("#lista");
 let temAtivos = false;
 let jobsCache = [];
 let perfil = { nome:"", cargo:"", organizacao:"", email:"", tem_assinatura:false };
-let cfg = { ata_disponivel:false, email_configurado:false };
+let cfg = { ata_disponivel:false, ata_ia:false, email_configurado:false };
 
 /* ---------- utilidades ---------- */
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
@@ -968,10 +968,12 @@ const DESTAQUE = new Set(["txt","transcricao_pdf","ata_pdf"]);
 
 function ataHTML(job){
   if (job.ata_status === "gerando")
-    return `<p class="fase">Gerando a ata… <b>(IA)</b></p>`;
+    return `<p class="fase">Gerando a ata…</p>`;
   let html = "";
   if (job.ata_status === "erro" && job.ata_error)
     html += `<p class="msg-erro">${esc(job.ata_error)}</p>`;
+  if (job.ata_status === "pronta" && job.ata_origem === "local")
+    html += `<p class="fase">Ata gerada localmente</p>`;
   return html;
 }
 
@@ -982,7 +984,7 @@ function acoesHTML(job){
   let b = `<button class="btn principal" type="button" data-acao="revisar" data-id="${job.id}">Revisar nomes</button>
            <button class="btn principal" type="button" data-acao="email" data-id="${job.id}">Enviar por e-mail</button>`;
   if (!gerando && cfg.ata_disponivel)
-    b += `<button class="btn" type="button" data-acao="ata" data-id="${job.id}">${temAta ? "Refazer a ata" : "Gerar ata (IA)"}</button>`;
+    b += `<button class="btn" type="button" data-acao="ata" data-id="${job.id}">${temAta ? "Refazer a ata" : "Gerar ata"}${cfg.ata_ia ? " (IA)" : ""}</button>`;
   return `<div class="acoes">${b}</div>`;
 }
 
@@ -1280,7 +1282,7 @@ function renderRevisao(){
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
         <span class="qtd">${fmtMin(s.segundos)} de fala · ${s.blocos ?? s.falas} blocos · ${s.palavras} palavras</span></div>
-      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
+      ${s.auto && !s.sem_nome ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
         <button type="button" class="usar" data-usar="${esc(s.label)}" data-nome="${esc(s.auto.nome)}">Usar</button></span>` : ""}
       ${s.primeira ? `<small class="primeira">Primeira fala: <q>${esc(s.primeira)}</q></small>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
@@ -1321,8 +1323,10 @@ $("#btnAddCorr").addEventListener("click", () => {
 function coletarRevisao(){
   const participants = lerParticipantes("#revPartLista");
   const speaker_names = {};
+  // campo vazio vai como "" de propósito: o servidor grava "sem nome" só se o
+  // falante já tinha nome confirmado (apagou de propósito); senão não grava nada
   document.querySelectorAll("#revFalantes input[data-label]").forEach(i => {
-    if (i.value.trim()) speaker_names[i.dataset.label] = i.value.trim();
+    speaker_names[i.dataset.label] = i.value.trim();
   });
   const corrections = [];
   document.querySelectorAll("#revCorr .corr").forEach(row => {

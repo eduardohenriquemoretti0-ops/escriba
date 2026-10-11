@@ -100,14 +100,43 @@ def segments_for(job: jobs.Job) -> list[Segment]:
     ]
 
 
-def names_for(job: jobs.Job, segments: list[Segment]) -> dict[str, str]:
-    """Nome de cada falante nas saídas (TXT/SRT/VTT/JSON/PDF/ata).
+def nome_de(job: jobs.Job, label: str) -> str:
+    """Nome que aparece nas saídas e na tela para um "Falante N".
 
-    Usa só `speaker_names`, que é o que o usuário confirmou na revisão. A
-    sugestão (`nomes_auto`) não entra aqui: sem confirmação, o falante sai
-    como "Falante N". Assim o que aparece no arquivo é sempre dado confirmado,
-    e apagar um nome na revisão de fato tira o nome dos arquivos."""
-    return exports.apply_names(exports.speaker_map(segments), job.speaker_names)
+    1) `speaker_names`: o que o usuário confirmou na revisão. Um valor vazio
+       ("") é o marcador de "sem nome": apagou o nome, então a sugestão não volta.
+    2) sem confirmação: a sugestão (`nomes_auto`), sem marca de confirmada.
+    3) nada: "" (o falante sai como "Falante N" ou "Comentarista N")."""
+    if label in job.speaker_names:
+        return (job.speaker_names.get(label) or "").strip()
+    return ((job.nomes_auto.get(label) or {}).get("nome") or "").strip()
+
+
+def names_for(job: jobs.Job, segments: list[Segment]) -> dict[str, str]:
+    """Nome de cada falante nas saídas (TXT/SRT/VTT/JSON/PDF/ata e legenda).
+
+    Confirmado na revisão vale primeiro; na falta dele, a sugestão. Sem nome
+    nenhum, o falante sai como "Falante N". Quem apagou o nome na revisão
+    (marcador "") sai como "Falante N", e a sugestão não volta."""
+    default = exports.speaker_map(segments)
+    return {raw: nome_de(job, label) or label for raw, label in default.items()}
+
+
+def marca_sem_nome(enviados: dict[str, str], anteriores: set[str]) -> dict[str, str]:
+    """Nomes da revisão com o marcador de "sem nome" para o que foi apagado.
+
+    `enviados`: o que a tela manda (rótulo -> nome, vazio = campo em branco).
+    `anteriores`: rótulos que já tinham nome confirmado ao abrir a revisão.
+    Um campo vazio só vira "sem nome" se o rótulo já tinha nome confirmado.
+    Rótulo nunca confirmado e em branco não grava nada: a sugestão continua."""
+    out: dict[str, str] = {}
+    for label, nome in enviados.items():
+        nome = (nome or "").strip()
+        if nome:
+            out[label] = nome
+        elif label in anteriores:
+            out[label] = ""          # apagou de propósito: marcador de "sem nome"
+    return out
 
 
 def default_title(job: jobs.Job) -> str:
@@ -176,6 +205,7 @@ def speakers_overview(job: jobs.Job) -> list[dict]:
         row = rows.setdefault(label, {
             "label": label,
             "nome": job.speaker_names.get(label, ""),
+            "sem_nome": label in job.speaker_names and not job.speaker_names[label],
             "auto": job.nomes_auto.get(label),
             "falas": 0, "palavras": 0, "primeira_fala": seg.start,
             "segundos": 0.0, "blocos": 0, "primeira": "", "amostras": [],

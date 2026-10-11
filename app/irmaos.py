@@ -311,3 +311,57 @@ def frase_irmaos(entradas: Sequence[Entrada], limite: int,
         escolhidos.append(e.nome)
         vistos.add(k)
     return _frase(escolhidos) if escolhidos else ""
+
+
+# --------------------------------------------------------------------------
+# Participantes digitados
+# --------------------------------------------------------------------------
+def corrige_participante(nome: str, entradas: Sequence[Entrada]) -> Optional[str]:
+    """Nome da lista para um participante digitado com erro, ou None.
+
+    Compara o nome INTEIRO (ou uma grafia cadastrada). Parte do nome não conta:
+    "Eduardo" não vira "José Eduardo". Homônimos na lista não corrigem."""
+    key = fold(_limpa(nome))
+    if not key or not entradas:
+        return None
+    grupos = _grupos(entradas)
+    if key in grupos:
+        g = grupos[key]
+        return g[0].nome if len(g) == 1 else None
+    for e in entradas:
+        if any(fold(g) == key for g in e.grafias):
+            grupo = grupos[fold(e.nome)]
+            return e.nome if len(grupo) == 1 else None
+    notas: dict[str, float] = {}
+    for chave, grupo in grupos.items():
+        alvos = {chave}
+        for e in grupo:
+            alvos.update(fold(g) for g in e.grafias)
+        notas[chave] = max(SequenceMatcher(None, key, a).ratio() for a in alvos)
+    ordem = sorted(notas.items(), key=lambda kv: -kv[1])
+    melhor_chave, melhor = ordem[0]
+    if melhor < LIMITE_CORRECAO:
+        return None
+    if len(ordem) > 1 and ordem[1][1] >= LIMITE_CORRECAO and melhor - ordem[1][1] < MARGEM_EMPATE:
+        return None
+    grupo = grupos[melhor_chave]
+    return grupo[0].nome if len(grupo) == 1 else None
+
+
+def corrige_participantes(participantes: Iterable[str],
+                          entradas: Sequence[Entrada]) -> list[str]:
+    """Participantes com a grafia da lista quando há erro de digitação.
+
+    "José Edaurdo" vira "José Eduardo". Sem casamento, o nome fica como foi
+    digitado. Sem duplicatas (caixa e acento ignorados)."""
+    saida: list[str] = []
+    vistos: set[str] = set()
+    for p in participantes:
+        p = _limpa(p)
+        if not p:
+            continue
+        nome = corrige_participante(p, entradas) or p
+        if fold(nome) not in vistos:
+            vistos.add(fold(nome))
+            saida.append(nome)
+    return saida

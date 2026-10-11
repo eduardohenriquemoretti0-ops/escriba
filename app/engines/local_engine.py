@@ -395,7 +395,7 @@ class LocalEngine:
         from .. import turnos
         out, pessoas, self.estudo_info = turnos.reatribui(
             out, lambda a, b: diarize._embed_span(extractor, audio, a, b),
-            irmaos=entradas)
+            irmaos=entradas, participantes=list(vocabulary or []))
         self.estudo = [dataclasses.asdict(p) for p in pessoas]
 
         # Cânticos: um bloco "em coro" por trecho, fora da separação de falantes

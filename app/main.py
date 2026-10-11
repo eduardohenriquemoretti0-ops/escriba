@@ -126,7 +126,9 @@ def health():
 @app.get("/api/config")
 def get_config():
     return {
-        "ata_disponivel": bool(config.ANTHROPIC_API_KEY),
+        # a ata sai sempre: pela API se houver chave, senão localmente
+        "ata_disponivel": True,
+        "ata_ia": bool(config.ANTHROPIC_API_KEY),
         "email_configurado": mailer.configured(),
         "whisperx_instalado": _whisperx_installed(),
     }
@@ -239,6 +241,7 @@ def _review_payload(job: jobs.Job) -> dict:
         "suggestions": review.suggest_corrections(job),
         "ata_existe": job.path("ata.md").exists(),
         "ata_status": job.ata_status,
+        "ata_origem": job.ata_origem,
         "vozes_info": job.vozes_info,
         "aprende_vozes": job.path("vozes.json").exists(),
         # confirmados na revisão que ainda não estão na lista: o usuário decide
@@ -259,11 +262,11 @@ def put_review(job_id: str, body: ReviewIn):
 
     names = None
     if body.speaker_names is not None:
-        names = {}
-        for label, value in body.speaker_names.items():
-            clean = review.clean_name(value)
-            if label in labels and clean:
-                names[label] = clean
+        # campo vazio de um nome já confirmado = "sem nome" (marcador ""), para a
+        # sugestão não voltar; campo vazio de quem nunca teve nome não grava nada
+        enviados = {label: review.clean_name(value)
+                    for label, value in body.speaker_names.items() if label in labels}
+        names = review.marca_sem_nome(enviados, set(job.speaker_names))
 
     participants = (review.clean_participants(body.participants)
                     if body.participants is not None else None)
@@ -388,11 +391,6 @@ def delete_nome(id_: str):
 @app.post("/api/jobs/{job_id}/ata")
 def make_ata(job_id: str):
     job = _get_done_job(job_id)
-    if not config.ANTHROPIC_API_KEY:
-        raise HTTPException(
-            status_code=400,
-            detail="Para gerar a ata, coloque ANTHROPIC_API_KEY no .env e "
-                   "reinicie o Escriba.")
     if job.ata_status == jobs.ATA_GERANDO:
         raise HTTPException(status_code=409, detail="A ata já está sendo gerada.")
 
