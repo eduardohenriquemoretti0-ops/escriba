@@ -302,6 +302,8 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
 .part-linha button{background:none;border:none;color:var(--cinza);font-size:18px;padding:0 6px}
 .part-linha button:hover{color:var(--erro)}
 .spk .auto{display:block;font-size:11.5px;color:var(--ok);margin-top:3px}
+.spk .auto .usar{background:none;color:var(--ok);border:1px solid var(--ok);border-radius:5px;
+  font-size:11.5px;padding:1px 8px;margin-left:6px}
 .voz-linha{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
   padding:8px 0;border-bottom:1px solid var(--linha);font-size:13.5px}
 .voz-linha small{display:block;color:var(--cinza);font-size:11.5px}
@@ -574,9 +576,11 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
 
     <div class="bloco">
       <h3>2 · Quem é quem</h3>
-      <p class="exp">O Escriba separou as vozes como “Falante 1, 2…” e já sugeriu
-      os nomes que conseguiu descobrir. Confira e corrija; ao salvar, ele
-      <b>aprende a voz de cada pessoa</b> para reconhecê-la nas próximas reuniões.</p>
+      <p class="exp">O Escriba separou as vozes como “Falante 1, 2…”. Quando ele
+      acha um nome, mostra como sugestão e deixa o campo vazio: clique em
+      <b>Usar</b> para aceitar, ou digite o nome. Só o que estiver no campo ao
+      salvar vira o nome da transcrição e é <b>aprendido</b> para reconhecer a
+      voz nas próximas reuniões. Sugestão não confirmada não é aprendida.</p>
       <p class="exp" id="revVozesInfo"></p>
       <div id="revFalantes"></div>
       <datalist id="listaPart"></datalist>
@@ -1139,7 +1143,8 @@ function renderRevisao(){
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
         <span class="qtd">${s.falas} falas · ${s.palavras} palavras</span></div>
-      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}</span>` : ""}
+      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
+        <button type="button" class="usar" data-usar="${esc(s.label)}" data-nome="${esc(s.auto.nome)}">Usar</button></span>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
       <input type="text" list="listaPart" maxlength="80" data-label="${esc(s.label)}"
         value="${esc(s.nome || "")}" placeholder="Quem é? (opcional)"
@@ -1158,6 +1163,16 @@ function renderRevisao(){
       <small>· ${s.ocorrencias}× no texto · ${Math.round(s.similaridade * 100)}% parecido</small></span>
     </label>`).join("");
 }
+
+// "Usar" só preenche o campo: a sugestão vira nome de fato apenas quando o
+// usuário salva a revisão com ela no campo (coletarRevisao envia só o que está lá).
+$("#revFalantes").addEventListener("click", e => {
+  const botao = e.target.closest("button.usar");
+  if (!botao) return;
+  const campo = [...document.querySelectorAll("#revFalantes input[data-label]")]
+    .find(i => i.dataset.label === botao.dataset.usar);
+  if (campo) { campo.value = botao.dataset.nome; campo.focus(); }
+});
 
 $("#btnAddCorr").addEventListener("click", () => {
   const linha = linhaCorrecao("", "");

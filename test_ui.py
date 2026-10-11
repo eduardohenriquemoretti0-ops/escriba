@@ -118,12 +118,18 @@ def main() -> None:
             expect(parts).to_have_count(2)
             expect(parts.nth(0)).to_have_value("Rosilaine Andrade")
             expect(parts.nth(1)).to_have_value("Eduardo Moretti")
-            # nome deduzido da conversa ("aqui é a Rosilene") já vem sugerido
+            # nome deduzido da conversa ("aqui é a Rosilene") vem só como sugestão:
+            # o campo começa vazio até o usuário aceitar ou digitar
             expect(page.locator("#revFalantes .spk").first).to_contain_text("Sugerido: Rosilaine Andrade")
+            expect(page.locator("#revFalantes input[data-label='Falante 1']")).to_have_value("")
+            expect(page.locator("#revFalantes input[data-label='Falante 2']")).to_have_value("")
             expect(page.locator("#revFalantes .spk")).to_have_count(2)
             expect(page.locator("#revSug")).to_contain_text("Rosilene")
             page.locator("#revSug input[type=checkbox]").first.check()
-            page.fill("#revFalantes input[data-label='Falante 1']", "Rosilaine Andrade")
+            # "Usar" preenche o campo com a sugestão
+            page.locator("#revFalantes .spk").first.get_by_role("button", name="Usar").click()
+            expect(page.locator("#revFalantes input[data-label='Falante 1']")).to_have_value("Rosilaine Andrade")
+            # o que o usuário digita à mão também conta
             page.fill("#revFalantes input[data-label='Falante 2']", "Eduardo Moretti")
             page.fill("#revTitulo", "Reunião Acme")
             page.fill("#revData", "08/10/2026")

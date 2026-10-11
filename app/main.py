@@ -298,7 +298,11 @@ def put_review(job_id: str, body: ReviewIn):
 
 
 def _learn_voices(job: jobs.Job) -> list[str]:
-    """Nomes confirmados na revisão viram memória de voz (motor local)."""
+    """Nomes confirmados na revisão viram memória de voz (motor local).
+
+    A fonte é só `job.speaker_names`, o que o usuário digitou ou escolheu no
+    campo da revisão. Sugestões (`job.nomes_auto`) nunca entram aqui. Um
+    campo vazio não aprende nada e apaga a contribuição desta reunião."""
     vfile = job.path("vozes.json")
     if not vfile.exists():
         return []

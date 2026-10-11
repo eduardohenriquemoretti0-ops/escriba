@@ -155,7 +155,7 @@ def _process(job: jobs.Job) -> None:
     job.set_phase("Fase 3/3 · Identificando quem é quem" if voices
                   else "Identificando quem é quem")
     _auto_names(job, segments, voices)
-    job = jobs.load(job.id)            # _auto_names gravou nomes/participantes
+    job = jobs.load(job.id)            # _auto_names gravou as sugestões (nomes_auto)
 
     # 4) Guardar o cru e gerar os arquivos (nomes/correções entram por cima)
     job.set_phase("Gerando arquivos de saída")
@@ -189,10 +189,15 @@ def _process(job: jobs.Job) -> None:
 
 
 def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
-    """Preenche "Falante N" -> nome com o que der para deduzir:
+    """Sugere, para cada "Falante N", o nome que der para deduzir:
     1º a memória de vozes (quem já foi confirmado em outras reuniões),
-    2º quem é chamado pelo nome / se apresenta na conversa.
-    Não sobrescreve nome que o usuário já tenha dado."""
+    2º quem é chamado pelo nome / se apresenta na conversa,
+    3º por eliminação.
+
+    As sugestões vão SÓ para `job.nomes_auto`. Não preenchem `speaker_names`
+    nem `participants`: esses campos são o que o usuário confirma na revisão,
+    e são a única fonte para a memória de vozes aprender. Um nome deduzido
+    que vira "fato" aqui seria aprendido na próxima salva e se reforçaria."""
     display = exports.speaker_map(segments)                  # "A" -> "Falante 1"
     by_voice = vozes.match({lab: v["vetor"] for lab, v in voices.items()})
     strong = {lab for lab, (_, sim) in by_voice.items() if sim >= vozes.MATCH_STRONG}
@@ -226,8 +231,4 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
 
     def mutate(j: jobs.Job) -> None:
         j.nomes_auto = auto
-        for label, info in auto.items():
-            j.speaker_names.setdefault(label, info["nome"])
-            if info["nome"] not in j.participants:
-                j.participants = [*j.participants, info["nome"]]
     jobs.update(job.id, mutate)

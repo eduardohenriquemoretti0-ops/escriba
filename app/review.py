@@ -101,6 +101,12 @@ def segments_for(job: jobs.Job) -> list[Segment]:
 
 
 def names_for(job: jobs.Job, segments: list[Segment]) -> dict[str, str]:
+    """Nome de cada falante nas saídas (TXT/SRT/VTT/JSON/PDF/ata).
+
+    Usa só `speaker_names`, que é o que o usuário confirmou na revisão. A
+    sugestão (`nomes_auto`) não entra aqui: sem confirmação, o falante sai
+    como "Falante N". Assim o que aparece no arquivo é sempre dado confirmado,
+    e apagar um nome na revisão de fato tira o nome dos arquivos."""
     return exports.apply_names(exports.speaker_map(segments), job.speaker_names)
 
 

@@ -370,8 +370,22 @@ def main() -> None:
             sem = pdf_texto(config.JOBS_DIR / jid2 / "transcricao.pdf")
             # "aqui é a Rosilene" / "Eduardo falando" -> nomes sugeridos sozinhos
             j2 = client.get(f"/api/jobs/{jid2}").json()
-            assert j2["speaker_names"] == {"Falante 1": "Rosilene", "Falante 2": "Eduardo"}, j2["speaker_names"]
+            # sugestão não pré-preenche o nome: fica em nomes_auto até o usuário confirmar
+            assert j2["speaker_names"] == {}, j2["speaker_names"]
+            assert {k: v["nome"] for k, v in j2["nomes_auto"].items()} == {
+                "Falante 1": "Rosilene", "Falante 2": "Eduardo"}, j2["nomes_auto"]
             assert j2["nomes_auto"]["Falante 1"]["fonte"] == "conversa"
+            assert "Falante 1" in sem and "Falante 2" in sem
+            txt2 = client.get(f"/api/jobs/{jid2}/file/txt").text
+            assert "Falante 1 · 00:00:00" in txt2 and "Rosilene · " not in txt2, txt2
+            # o usuário confirma na revisão: aí o nome entra nas saídas
+            rv2 = client.put(f"/api/jobs/{jid2}/review", json={
+                "speaker_names": {"Falante 1": "Rosilene", "Falante 2": "Eduardo"}}).json()
+            assert rv2["speaker_names"] == {"Falante 1": "Rosilene", "Falante 2": "Eduardo"}
+            txt2 = client.get(f"/api/jobs/{jid2}/file/txt").text
+            assert "Rosilene · 00:00:00" in txt2, txt2
+            assert client.get(f"/api/jobs/{jid2}/file/transcricao_pdf").status_code == 200
+            sem = pdf_texto(config.JOBS_DIR / jid2 / "transcricao.pdf")
             assert "Rosilene" in sem and "Eduardo" in sem and "Falante 1" not in sem
             # gerar ata depois (botão "Gerar ata")
             assert client.post(f"/api/jobs/{jid2}/ata").status_code == 200

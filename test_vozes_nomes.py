@@ -6,9 +6,11 @@ import json
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
-from app import config, vozes
+from app import config, jobs, review, vozes, worker
 from app.engines.base import Segment
+from app.main import app
 from app.nomes import infer
 
 
@@ -153,9 +155,94 @@ def test_eliminacao_dois_sem_nome_e_dois_livres_nao_sugere():
                           ["Eduardo Moretti", "Fernando TopVigia"], {}) == {}
 
 
-def test_eliminacao_nunca_vai_para_a_memoria_de_vozes():
-    # a sugestão é só sugestão: learn() não é chamado com ela
-    sugerido = por_eliminacao(["Falante 1", "Falante 2"],
-                              ["Eduardo Moretti", "Fernando TopVigia"],
-                              {"Falante 2": "Fernando TopVigia"})
-    assert sugerido and vozes.list_people() == []
+
+# --------------------------------------------------------------------------
+# Fluxo real: sugestão automática -> revisão -> memória de vozes
+# (o que a tela envia é o que está no campo; sugestão só vira nome se o
+#  usuário confirmar, digitando ou clicando em "Usar")
+# --------------------------------------------------------------------------
+@pytest.fixture
+def cliente(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    return TestClient(app)
+
+
+def _job_pronto(segmentos, voices, participantes=()):
+    """Job concluído com transcrição crua e assinaturas de voz, como o worker deixa."""
+    job = jobs.new_job(filename="reuniao.wav", engine="local", language="pt",
+                       min_speakers=None, max_speakers=None, want_summary=False)
+
+    def concluir(j: jobs.Job) -> None:
+        j.status = jobs.STATUS_DONE
+        j.participants = list(participantes)
+    jobs.update(job.id, concluir)
+    review.save_raw(job, segmentos)
+    job.path("vozes.json").write_text(json.dumps(voices), encoding="utf-8")
+    return job.id
+
+
+def _corpo_da_tela(rv: dict) -> dict:
+    """Replica coletarRevisao() no front: só entram os campos preenchidos."""
+    return {"speaker_names": {s["label"]: s["nome"] for s in rv["speakers"] if s["nome"]}}
+
+
+def test_sugestao_por_conversa_so_aprende_o_que_for_confirmado(cliente):
+    segs = [_seg(0, "A", "Bom dia, aqui é a Rosilene."), _seg(4, "B", "Bom dia."),
+            _seg(8, "A", "Vamos começar."), _seg(12, "B", "Pode ser.")]
+    voices = {"A": {"vetor": _voz(1), "segundos": 300}, "B": {"vetor": _voz(2), "segundos": 200}}
+    jid = _job_pronto(segs, voices, participantes=["Rosilaine Andrade", "Eduardo Moretti"])
+
+    # 1) o worker deduz nomes: vão só para nomes_auto
+    worker._auto_names(jobs.load(jid), segs, voices)
+    review.render_outputs(jid)
+    job = jobs.load(jid)
+    assert job.speaker_names == {}, "sugestão não pode virar nome confirmado"
+    assert job.participants == ["Rosilaine Andrade", "Eduardo Moretti"]
+    assert job.nomes_auto["Falante 1"]["nome"] == "Rosilaine Andrade"
+    assert job.nomes_auto["Falante 2"]["fonte"] == "eliminacao"
+    txt = job.path("transcricao.txt").read_text(encoding="utf-8")
+    assert "Falante 1 · " in txt and "Rosilaine" not in txt, "arquivo sem confirmação não leva o nome"
+
+    # 2) a tela mostra a sugestão com o campo vazio
+    rv = cliente.get(f"/api/jobs/{jid}/review").json()
+    assert [(s["nome"], s["auto"]["nome"]) for s in rv["speakers"]] == [
+        ("", "Rosilaine Andrade"), ("", "Eduardo Moretti")]
+
+    # 3) salvar a revisão sem mexer nos campos não aprende nada
+    r = cliente.put(f"/api/jobs/{jid}/review", json=_corpo_da_tela(rv)).json()
+    assert r["vozes_aprendidas"] == [] and vozes.list_people() == []
+
+    # 4) o usuário aceita só a primeira sugestão ("Usar"); a segunda fica vazia
+    r = cliente.put(f"/api/jobs/{jid}/review",
+                    json={"speaker_names": {"Falante 1": "Rosilaine Andrade"}}).json()
+    assert r["vozes_aprendidas"] == ["Rosilaine Andrade"]
+    assert [p["nome"] for p in vozes.list_people()] == ["Rosilaine Andrade"]
+    txt = job.path("transcricao.txt").read_text(encoding="utf-8")
+    assert "Rosilaine Andrade · " in txt and "Falante 2 · " in txt
+    assert "Eduardo" not in txt
+
+
+def test_sugestao_por_voz_nao_reforca_a_memoria(cliente):
+    # reunião anterior confirmada pelo usuário: Fernando
+    vozes.learn("job_antiga", {"A": "Fernando"}, {"A": {"vetor": _voz(1), "segundos": 600}})
+    segs = [_seg(0, "A", "Vamos ver o orçamento."), _seg(4, "B", "Tudo certo."),
+            _seg(8, "A", "Combinado."), _seg(12, "B", "Ótimo.")]
+    voices = {"A": {"vetor": _voz(1), "segundos": 300}, "B": {"vetor": _voz(2), "segundos": 200}}
+    jid = _job_pronto(segs, voices)
+
+    worker._auto_names(jobs.load(jid), segs, voices)
+    job = jobs.load(jid)
+    assert job.nomes_auto["Falante 1"]["fonte"] == "voz"
+    assert job.speaker_names == {}
+
+    # salvar sem confirmar: a pessoa continua com 1 reunião (só a antiga)
+    rv = cliente.get(f"/api/jobs/{jid}/review").json()
+    cliente.put(f"/api/jobs/{jid}/review", json=_corpo_da_tela(rv))
+    assert [(p["nome"], p["reunioes"]) for p in vozes.list_people()] == [("Fernando", 1)]
+
+    # confirmar digitando: aprende nesta reunião também
+    r = cliente.put(f"/api/jobs/{jid}/review",
+                    json={"speaker_names": {"Falante 1": "Fernando"}}).json()
+    assert r["vozes_aprendidas"] == ["Fernando"]
+    assert [(p["nome"], p["reunioes"]) for p in vozes.list_people()] == [("Fernando", 2)]
