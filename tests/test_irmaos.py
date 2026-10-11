@@ -194,7 +194,7 @@ def test_valida_nome_e_observacao():
     with pytest.raises(irmaos.IrmaoError):
         irmaos.criar("<script>")                  # símbolo
     with pytest.raises(irmaos.IrmaoError):
-        irmaos.criar("Ana", "x" * 41)             # observação longa
+        irmaos.criar("Ana", "x" * 81)             # observação longa
     with pytest.raises(irmaos.IrmaoError):
         irmaos.criar("Ana", "", ["Ana<b>"])       # grafia inválida
 

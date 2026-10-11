@@ -33,7 +33,7 @@ MARGEM_EMPATE = 0.02       # dois candidatos quase iguais: não corrige
 MAX_ENTRADAS = 500
 MAX_GRAFIAS = 10
 MAX_NOME = 60
-MAX_OBSERVACAO = 40
+MAX_OBSERVACAO = 80          # mesmo limite do campo da API (main.IrmaoIn)
 AMBIGUO_MSG = "{n} pessoas com esse nome; confirme pela voz"
 
 _LETRAS = "A-Za-zÀ-ÖØ-öø-ÿ"
@@ -95,7 +95,7 @@ def _valida(nome: object, observacao: object, grafias: Iterable[object]) -> tupl
     if not _NOME_RX.match(nome):
         raise IrmaoError("Nome: use de 2 a 60 letras (acentos, espaço, hífen ou apóstrofo).")
     if not _OBS_RX.match(obs):
-        raise IrmaoError("Observação: até 40 caracteres (letras, números e ( ) , . / -).")
+        raise IrmaoError("Observação: até 80 caracteres (letras, números e ( ) , . / -).")
     vistas: list[str] = []
     for g in grafias or []:
         g = _limpa(g)
