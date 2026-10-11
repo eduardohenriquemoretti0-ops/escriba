@@ -68,6 +68,7 @@ class Job:
 
     # ---- reconhecimento de vozes e nomes (motor local) ----------------------
     vozes_info: dict = field(default_factory=dict)          # resumo da fase 1
+    falantes_estudo: list = field(default_factory=list)     # pessoas do estudo (turnos)
     nomes_auto: dict = field(default_factory=dict)          # "Falante 1" -> {nome, fonte, detalhe}
 
     # ---- caminhos ----------------------------------------------------------

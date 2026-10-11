@@ -71,6 +71,10 @@ _COMUNS = {_fold(w) for w in (
     "quando", "onde", "pra", "para", "uma", "uns", "isso", "esse", "essa", "aí",
     "vamos", "vou", "né", "daí", "assim", "então", "entao", "cada", "todo",
     "toda", "todos", "todas", "outro", "outra", "nada", "algo", "hoje", "ontem",
+    # papéis da reunião e pronomes que o Whisper escreve com maiúscula
+    "dirigente", "presidente", "leitor", "orador", "irmãos", "irmãs", "você",
+    "voce", "vocês", "ele", "ela", "eles", "elas", "quem", "qual", "quais",
+    "essa", "esse", "isso", "pessoal", "senhor", "senhora",
 )}
 
 
@@ -139,9 +143,15 @@ _CHAMADA_TITULO = re.compile(
     rf"(?:^|[.!?…,]\s+)(?i:sim|pois não|pois nao|pode|certo|ok)\s*,\s*{_TITULO}\s+({_NC})\b")
 # "irmão Fulano, por favor"
 _CHAMADA_TITULO_FINAL = re.compile(
-    rf"(?:^|[.!?…]\s+){_TITULO}\s+({_NC})\s*,?\s*(?i:por favor)\b")
+    rf"(?:^|[.!?…]\s+){_TITULO}\s+({_NC})\s*,?\s*(?i:por favor|por gentileza)\b")
 # "Fulano, por favor"
-_CHAMADA_NOME = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*,\s*(?i:por favor)\b")
+_CHAMADA_NOME = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*,\s*(?i:por favor|por gentileza)\b")
+# "Irmã Edna." / "O irmão Michel" / "Ainda o irmão Reinaldo": título + nome que
+# não vem depois de "obrigado" na mesma frase é chamada (o dirigente passa a
+# palavra). Frase = trecho desde o último ponto.
+_CHAMADA_SOLTA = re.compile(rf"{_TITULO}\s+({_NC})\b")
+# "Rita? Então," — nome seguido de pergunta do dirigente
+_CHAMADA_QUESTAO = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*\?")
 # "Obrigado, irmão Fulano" / "Muito bem, Fulana" / "obrigado irmão Admir"
 _AGRADECIMENTO = re.compile(
     rf"(?i:muito obrigad[oa]|obrigad[oa]|muito bem|isso mesmo)\s*,?\s*"
@@ -174,18 +184,36 @@ def _resumo_motivos(motivos: list[str]) -> str:
     return ", ".join(f"{m} {n}×" for m, n in cont.items())
 
 
+def eventos_do_texto(texto: str) -> list[tuple[str, str]]:
+    """(tipo, nome cru) de cada chamada e agradecimento num texto.
+
+    Cada posição do texto conta uma vez. Agradecimento tem prioridade sobre
+    chamada ("Muito bem, irmã X" é agradecimento). Fala citada ("disse: sim,
+    irmão X") não conta."""
+    achados: dict[int, tuple[str, str]] = {}
+    for m in _AGRADECIMENTO.finditer(texto):
+        achados.setdefault(m.start(1), ("agradecimento", m.group(1)))
+    for rx in (_CHAMADA_TITULO, _CHAMADA_TITULO_FINAL, _CHAMADA_NOME, _CHAMADA_QUESTAO):
+        for m in rx.finditer(texto):
+            achados.setdefault(m.start(1), ("chamada", m.group(1)))
+    for m in _CHAMADA_SOLTA.finditer(texto):
+        if re.search(r"(?i)obrigad", re.split(r"[.!?…]", texto[:m.start()])[-1]):
+            continue                             # frase de agradecimento
+        achados.setdefault(m.start(1), ("chamada", m.group(1)))
+    saida = []
+    for pos, (tipo, nome) in sorted(achados.items()):
+        if _nao_e_nome(nome.split()[0]):
+            continue
+        frase = re.split(r"[.!?…]", texto[:pos])[-1]
+        if _QUOTE.search(frase):
+            continue                             # está citando outra pessoa
+        saida.append((tipo, nome))
+    return saida
+
+
 def _eventos_posicionais(segs: list[Segment]) -> list[tuple[str, int, str]]:
     """(tipo, índice da fala, nome cru) para chamadas e agradecimentos."""
-    eventos: list[tuple[str, int, str]] = []
-    for i, seg in enumerate(segs):
-        for rx in (_CHAMADA_TITULO, _CHAMADA_TITULO_FINAL, _CHAMADA_NOME):
-            for m in rx.finditer(seg.text):
-                if not _nao_e_nome(m.group(1).split()[0]):
-                    eventos.append(("chamada", i, m.group(1)))
-        for m in _AGRADECIMENTO.finditer(seg.text):
-            if not _nao_e_nome(m.group(1).split()[0]):
-                eventos.append(("agradecimento", i, m.group(1)))
-    return eventos
+    return [(t, i, n) for i, seg in enumerate(segs) for t, n in eventos_do_texto(seg.text)]
 
 
 def _alvo_chamada(segs: list[Segment], i: int) -> Optional[str]:

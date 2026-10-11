@@ -21,6 +21,7 @@ os modelos estejam em models/ (o instalador/build já deixa lá).
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 import threading
 
@@ -261,6 +262,8 @@ class LocalEngine:
         # preenchidos a cada transcrição, lidos pelo worker
         self.voices: dict[str, dict] = {}       # rótulo -> {vetor, segundos}
         self.scan: dict = {}                    # resumo da fase 1
+        self.estudo: list = []                  # pessoas do estudo (turnos)
+        self.estudo_info: dict = {}             # estrutura detectada (dirigente...)
 
     def transcribe(
         self,
@@ -364,6 +367,13 @@ class LocalEngine:
                 out[-1].end = s.end
             else:
                 out.append(Segment(start=s.start, end=s.end, speaker=label, text=s.text))
+        # Estudo bíblico: comentários separados por turno, guiados pela estrutura
+        # (dirigente chama e agradece). Sem a estrutura, nada muda.
+        from .. import turnos
+        out, pessoas, self.estudo_info = turnos.reatribui(
+            out, lambda a, b: diarize._embed_span(extractor, audio, a, b))
+        self.estudo = [dataclasses.asdict(p) for p in pessoas]
+
         # Cânticos: um bloco "em coro" por trecho, fora da separação de falantes
         for a, b in _agrupa_coro(coro):
             out.append(Segment(start=a, end=b, speaker=CORO_LABEL, text=CORO_TEXT))

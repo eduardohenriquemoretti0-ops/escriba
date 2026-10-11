@@ -150,6 +150,7 @@ def _process(job: jobs.Job) -> None:
     if voices:
         job.path("vozes.json").write_text(json.dumps(voices), encoding="utf-8")
     job.vozes_info = getattr(engine, "scan", None) or {}
+    job.falantes_estudo = getattr(engine, "estudo", None) or []
     job.save()
 
     # 3) Dar nome às vozes (sugestões; o usuário confirma na revisão)
@@ -215,6 +216,17 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
         elif raw in by_talk:
             name, _, why = by_talk[raw]
             auto[label] = {"nome": name, "fonte": "conversa", "detalhe": why}
+
+    # nomes dos turnos do estudo (chamada/agradecimento do dirigente): sugestão
+    # acima de conversa e eliminação, abaixo de voz reconhecida
+    for pessoa in job.falantes_estudo or []:
+        if not pessoa.get("nomeada") or pessoa["rotulo"] not in display:
+            continue
+        label = display[pessoa["rotulo"]]
+        if auto.get(label, {}).get("fonte") == "voz":
+            continue
+        auto[label] = {"nome": pessoa["nome"], "fonte": "turno",
+                       "detalhe": pessoa["origem"] or "estrutura do estudo"}
 
     # mesmo nome não pode ir para duas vozes
     seen: set = set()
