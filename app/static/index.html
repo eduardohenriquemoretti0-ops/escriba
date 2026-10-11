@@ -371,6 +371,7 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
     <div class="logo">Escri<b>ba</b></div>
     <div class="tag">transcrição de reuniões · self-hosted</div>
     <button class="btn perfil-btn" id="btnVozes" type="button">Vozes conhecidas</button>
+    <button class="btn perfil-btn" id="btnIrmaos" type="button">Irmãos / nomes conhecidos</button>
     <button class="btn perfil-btn" id="btnPerfil" type="button">Perfil e assinatura</button>
   </header>
   <p class="sub">Envie a gravação da reunião (áudio ou vídeo, Zoom incluso).
@@ -559,6 +560,33 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
   </div>
 </dialog>
 
+<!-- ======================= IRMÃOS / NOMES CONHECIDOS ======================= -->
+<dialog id="dlgIrmaos" aria-labelledby="tIrmaos">
+  <div class="dlg-cab">
+    <h2 id="tIrmaos">Irmãos / nomes conhecidos</h2>
+    <button class="x" type="button" data-fechar aria-label="Fechar">×</button>
+  </div>
+  <div class="dlg-corpo">
+    <p class="exp">Lista de nomes da congregação, só nomes, sem voz. Ela ajuda o
+    reconhecimento a escrever os nomes certos, corrige a grafia dos nomes que a
+    conversa traz e aparece nas sugestões da revisão. Use <b>observação</b> para
+    distinguir homônimos (“Matheus (1)”, “Matheus (2)”) e <b>grafias</b> para as
+    variantes que o reconhecimento escreve de outro jeito (ex.: Marileneza).</p>
+    <div id="listaIrmaos"></div>
+    <form id="formIrmao" class="bloco">
+      <input type="hidden" id="irmaoId">
+      <label>Nome <input type="text" id="irmaoNome" maxlength="60" required></label>
+      <label>Observação <input type="text" id="irmaoObs" maxlength="40" placeholder="ex.: 1"></label>
+      <label>Grafias que o reconhecimento escreve <input type="text" id="irmaoGrafias" maxlength="200" placeholder="ex.: Marilenez, Marileneza"></label>
+      <button class="btn cheio" type="submit">Salvar nome</button>
+      <button class="btn" type="button" id="irmaoCancelar" hidden>Cancelar edição</button>
+    </form>
+  </div>
+  <div class="dlg-rod">
+    <button class="btn" type="button" data-fechar>Fechar</button>
+  </div>
+</dialog>
+
 <!-- ======================= REVISÃO DE NOMES ======================= -->
 <dialog id="dlgRev" aria-labelledby="tRev">
   <div class="dlg-cab">
@@ -584,6 +612,7 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
       <p class="exp" id="revVozesInfo"></p>
       <div id="revFalantes"></div>
       <datalist id="listaPart"></datalist>
+      <div id="revNovos" hidden></div>
     </div>
 
     <div class="bloco">
@@ -765,6 +794,92 @@ function renderVozes(){
     if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
     avisar(`Voz de ${nome} apagada.`, "ok");
     await carregarVozes(); renderVozes();
+  }));
+}
+
+/* ---------- irmãos / nomes conhecidos (só nomes, sem voz) ---------- */
+let irmaosLista = [];
+async function carregarIrmaos(){
+  try {
+    const r = await fetch("/api/nomes");
+    irmaosLista = r.ok ? (await r.json()).nomes : [];
+  } catch(_) { irmaosLista = []; }
+  atualizaDatalistaNomes();
+}
+// sugestões do campo de nome da revisão: participantes da reunião + lista de irmãos
+function atualizaDatalistaNomes(){
+  const opcoes = [...new Set([
+    ...((revDados && revDados.participants) || []),
+    ...irmaosLista.map(n => n.rotulo)])];
+  $("#listaPart").innerHTML = opcoes.map(p => `<option value="${esc(p)}">`).join("");
+}
+function renderIrmaos(){
+  $("#listaIrmaos").innerHTML = irmaosLista.length
+    ? irmaosLista.map(n => `<div class="voz-linha">
+        <span>${esc(n.rotulo)}<small>${n.grafias.length
+          ? "grafias: " + esc(n.grafias.join(", ")) : "sem grafias extras"}</small></span>
+        <span>
+          <button class="btn" type="button" data-editar-irmao="${esc(n.id)}">Editar</button>
+          <button class="btn perigo" type="button" data-apagar-irmao="${esc(n.id)}">Apagar</button>
+        </span>
+      </div>`).join("")
+    : '<p class="exp">Nenhum nome ainda. Adicione os irmãos que costumam falar nas reuniões.</p>';
+  document.querySelectorAll("[data-editar-irmao]").forEach(b => b.addEventListener("click", () => {
+    const n = irmaosLista.find(x => x.id === b.dataset.editarIrmao);
+    if (!n) return;
+    $("#irmaoId").value = n.id; $("#irmaoNome").value = n.nome;
+    $("#irmaoObs").value = n.observacao; $("#irmaoGrafias").value = n.grafias.join(", ");
+    $("#irmaoCancelar").hidden = false; $("#irmaoNome").focus();
+  }));
+  document.querySelectorAll("[data-apagar-irmao]").forEach(b => b.addEventListener("click", async () => {
+    const n = irmaosLista.find(x => x.id === b.dataset.apagarIrmao);
+    if (!confirm(`Apagar ${n ? n.rotulo : "este nome"} da lista? Reuniões e vozes não são apagadas.`)) return;
+    const r = await fetch(`/api/nomes/${encodeURIComponent(b.dataset.apagarIrmao)}`, { method: "DELETE" });
+    if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+    avisar("Nome apagado da lista.", "ok");
+    await carregarIrmaos(); renderIrmaos();
+  }));
+}
+function limpaFormIrmao(){
+  $("#irmaoId").value = ""; $("#irmaoNome").value = ""; $("#irmaoObs").value = "";
+  $("#irmaoGrafias").value = ""; $("#irmaoCancelar").hidden = true;
+}
+$("#btnIrmaos").addEventListener("click", async () => {
+  await carregarIrmaos(); renderIrmaos(); limpaFormIrmao(); $("#dlgIrmaos").showModal();
+});
+$("#irmaoCancelar").addEventListener("click", limpaFormIrmao);
+$("#formIrmao").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = $("#irmaoId").value;
+  const corpo = {
+    nome: $("#irmaoNome").value.trim(),
+    observacao: $("#irmaoObs").value.trim(),
+    grafias: $("#irmaoGrafias").value.split(",").map(x => x.trim()).filter(Boolean)
+  };
+  const r = await fetch(id ? `/api/nomes/${encodeURIComponent(id)}` : "/api/nomes",
+    jsonOpts(id ? "PUT" : "POST", corpo));
+  if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+  avisar(id ? "Nome atualizado." : "Nome adicionado à lista.", "ok");
+  limpaFormIrmao(); await carregarIrmaos(); renderIrmaos();
+});
+// Nomes confirmados na revisão que ainda não estão na lista: só entram com o clique
+function renderNovos(nomesNovos){
+  const box = $("#revNovos");
+  const lista = nomesNovos || [];
+  box.hidden = !lista.length;
+  box.innerHTML = lista.length
+    ? '<p class="exp">Estes nomes confirmados ainda não estão na sua lista de irmãos. ' +
+      'Quer adicionar? Só entra o que você escolher:</p>' +
+      lista.map(n => `<div class="voz-linha"><span>${esc(n)}</span>
+        <button class="btn" type="button" data-novo="${esc(n)}">Adicionar à lista</button></div>`).join("")
+    : "";
+  box.querySelectorAll("[data-novo]").forEach(b => b.addEventListener("click", async () => {
+    const r = await fetch("/api/nomes", jsonOpts("POST", { nome: b.dataset.novo }));
+    if (!r.ok) { avisar(await erroMsg(r), "erro"); return; }
+    avisar(`${b.dataset.novo} adicionado à lista.`, "ok");
+    b.closest(".voz-linha").remove();
+    await carregarIrmaos();
+    if (!box.querySelector("[data-novo]")) box.hidden = true;
   }));
 }
 
@@ -1156,8 +1271,8 @@ function renderRevisao(){
   $("#revTitulo").value = d.meeting.title || "";
   $("#revData").value = d.meeting.date || "";
   $("#revLocal").value = d.meeting.place || "";
-  $("#listaPart").innerHTML = (d.participants || [])
-    .map(p => `<option value="${esc(p)}">`).join("");
+  atualizaDatalistaNomes();
+  renderNovos(d.nomes_novos);
 
   const fmtMin = (sec) => { const m = Math.floor((sec || 0) / 60), r = Math.round((sec || 0) % 60);
     return m ? `${m} min ${r} s` : `${r} s`; };
@@ -1349,7 +1464,7 @@ $("#btnEnviarEmail").addEventListener("click", async () => {
 
 /* ====================== início ====================== */
 (async function iniciar(){
-  await Promise.all([carregarPerfil(), carregarConfig()]);
+  await Promise.all([carregarPerfil(), carregarConfig(), carregarIrmaos()]);
   await atualizar();
 })();
 setInterval(() => { if (temAtivos) atualizar(); }, 2500);

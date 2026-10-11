@@ -18,7 +18,7 @@ from pathlib import Path
 import json
 import logging
 
-from . import config, exports, jobs, media, nomes, review, vozes
+from . import config, exports, irmaos, jobs, media, nomes, review, vozes
 from .engines import get_engine, merge_segments
 from .engines.base import CORO_LABEL
 
@@ -205,7 +205,8 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
     by_voice = vozes.match({lab: v["vetor"] for lab, v in voices.items()})
     strong = {lab for lab, (_, sim) in by_voice.items() if sim >= vozes.MATCH_STRONG}
     candidates = [*job.participants, *(p["nome"] for p in vozes.list_people())]
-    by_talk = nomes.infer(segments, candidates, exclude=strong)
+    entradas = irmaos.listar_seguro(log)                     # lista de irmãos (só nomes)
+    by_talk = nomes.infer(segments, candidates, exclude=strong, irmaos=entradas)
 
     auto: dict = {}
     for raw, label in display.items():
@@ -227,6 +228,12 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
             continue
         auto[label] = {"nome": pessoa["nome"], "fonte": "turno",
                        "detalhe": pessoa["origem"] or "estrutura do estudo"}
+
+    # homônimos na lista: o nome é só sugestão, a observação diz para confirmar pela voz
+    for label, info in auto.items():
+        aviso = irmaos.corrige(info["nome"], entradas)
+        if aviso.ambiguo:
+            info["detalhe"] = f"{info['detalhe']} · {aviso.observacao}"
 
     # mesmo nome não pode ir para duas vozes
     seen: set = set()

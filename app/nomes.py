@@ -14,11 +14,11 @@ Só é sugerido quem tiver votos suficientes e folga sobre o segundo colocado.
 from __future__ import annotations
 
 import re
-import unicodedata
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from typing import Iterable, Optional
 
+from . import irmaos as _irmaos
 from .engines.base import Segment
 
 MIN_VOTES = 2.0          # votos mínimos para sugerir um nome
@@ -51,9 +51,7 @@ _STOP = {
 }
 
 
-def _fold(text: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFD", text.casefold())
-                   if unicodedata.category(c) != "Mn")
+_fold = _irmaos.fold
 
 
 # A stoplist é guardada JÁ normalizada. Antes ela tinha "então" com acento
@@ -125,6 +123,22 @@ def _canonical(word: str, known: dict[str, str],
     return known.get(key)
 
 
+def _resolve(word: str, known: dict[str, str], trusted: Optional[dict[str, str]],
+             entradas: list) -> Optional[str]:
+    """Nome da lista de irmãos (com grafia corrigida) se a palavra casar com ela;
+    senão, o caminho antigo (participantes informados e vozes conhecidas)."""
+    if entradas:
+        achado = _irmaos.corrige(word, entradas)
+        if achado.casou:
+            return achado.nome
+    return _canonical(word, known, trusted)
+
+
+def _mesmo_protegido(a: str, b: str, protegidos: set) -> bool:
+    """Dois nomes EXATOS da lista (grafias diferentes) nunca se fundem: Mateus ≠ Matheus."""
+    return (_fold(a) in protegidos and _fold(b) in protegidos and _fold(a) != _fold(b))
+
+
 # --------------------------------------------------------------------------
 # Reunião com vários falantes: a pessoa é nomeada pela POSIÇÃO no tempo.
 # Ex. (salão): o dirigente chama antes do comentário ("Sim, irmão Fulano"),
@@ -158,15 +172,18 @@ _AGRADECIMENTO = re.compile(
     rf"(?:{_TITULO}\s+)?({_NC})\b")
 
 
-def _unifica(nomes: list[str]) -> dict[str, str]:
-    """Grafias parecidas viram uma só (a mais frequente): "Admir" -> "Ademir"."""
+def _unifica(nomes: list[str], protegidos: Optional[set] = None) -> dict[str, str]:
+    """Grafias parecidas viram uma só (a mais frequente): "Admir" -> "Ademir".
+    `protegidos`: nomes exatos da lista de irmãos (folded); não se fundem entre si."""
+    protegidos = protegidos or set()
     freq = Counter(nomes)
     canon: list[str] = []
     mapa: dict[str, str] = {}
     # empate de frequência: vale a grafia que aparece primeiro na conversa
     for n in sorted(freq, key=lambda x: -freq[x]):
         achado = next((c for c in canon if SequenceMatcher(
-            None, _fold(n), _fold(c)).ratio() >= UNIFICA_MIN), None)
+            None, _fold(n), _fold(c)).ratio() >= UNIFICA_MIN
+            and not _mesmo_protegido(n, c, protegidos)), None)
         if achado is None:
             canon.append(n)
             mapa[n] = n
@@ -250,12 +267,16 @@ def dirigente_de(segs: list[Segment]) -> Optional[str]:
 
 
 def infer(segments: list[Segment], candidates: Iterable[str] = (),
-          exclude: Optional[set] = None) -> dict[str, tuple[str, float, str]]:
+          exclude: Optional[set] = None,
+          irmaos: Iterable = ()) -> dict[str, tuple[str, float, str]]:
     """{rótulo_cru: (nome, votos, motivo)} para os falantes identificados.
 
     `candidates`: nomes já conhecidos (participantes informados, vozes da
     memória). Além deles, aceita nomes próprios que aparecem na conversa.
     `exclude`: rótulos que já têm nome (pela voz) e não devem ser sugeridos.
+    `irmaos`: entradas da lista de irmãos (`app.irmaos.Entrada`). Grafia
+    parecida é corrigida para o nome da lista; nome exato não se funde com
+    outro nome da lista.
 
     Com mais de 2 falantes, o nome vem da posição no tempo (chamada ->
     próximo falante; agradecimento -> falante anterior). Com 2, vale também
@@ -265,6 +286,8 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     speakers = list(dict.fromkeys(s.speaker for s in segs))
     if len(speakers) < 1:
         return {}
+    entradas = list(irmaos)
+    protegidos = _irmaos.nomes_protegidos(entradas)
 
     known: dict[str, str] = {}
     for full in candidates:
@@ -287,7 +310,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
             if _nao_e_nome(m.group(1)):
                 continue
             # quem se apresenta vale mesmo sem o nome ter aparecido antes
-            name = _canonical(m.group(1), known, trusted) or m.group(1)
+            name = _resolve(m.group(1), known, trusted, entradas) or m.group(1)
             if name:
                 votes[seg.speaker][name] += 3.0
                 reasons[(seg.speaker, name)].append("apresentou-se")
@@ -295,10 +318,14 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     # --- chamadas e agradecimentos (posição no tempo) -----------------------
     eventos = _eventos_posicionais(segs)
     crus = [n for _, _, n in eventos]
-    mapa = _unifica(crus)
+    if entradas:
+        # corrige a grafia antes de unificar: "Niffa" vira "Ninfa" pela lista
+        corr = {c: _resolve(c, known, trusted, entradas) or c for c in set(crus)}
+        crus = [corr[c] for c in crus]
+    mapa = _unifica(crus, protegidos)
     nomes_evento = []
-    for tipo, i, cru in eventos:
-        nome = _canonical(mapa[cru], known, trusted) or mapa[cru]
+    for (tipo, i, _), cru in zip(eventos, crus):
+        nome = mapa[cru] if entradas else (_canonical(mapa[cru], known, trusted) or mapa[cru])
         nomes_evento.append((tipo, i, nome))
     dirigente = dirigente_de(segs)
     # quem pronuncia o nome numa chamada/agradecimento não pode receber esse nome
@@ -329,7 +356,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
                     continue
                 if _QUOTE.search(seg.text[:m.start()]):
                     continue                     # está citando outra pessoa
-                name = _canonical(word, known, trusted)
+                name = _resolve(word, known, trusted, entradas)
                 if not name:
                     continue
                 # Quem chama provavelmente não é o chamado. Peso menor que o voto

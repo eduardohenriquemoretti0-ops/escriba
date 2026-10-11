@@ -12,12 +12,12 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import json
 
-from . import (config, exports, jobs, mailer, media, pdfdocs, profile, review,
-               vozes, worker)
+from . import (config, exports, irmaos, jobs, mailer, media, pdfdocs, profile,
+               review, vozes, worker)
 
 app = FastAPI(title="Escriba", docs_url="/api/docs")
 
@@ -241,6 +241,9 @@ def _review_payload(job: jobs.Job) -> dict:
         "ata_status": job.ata_status,
         "vozes_info": job.vozes_info,
         "aprende_vozes": job.path("vozes.json").exists(),
+        # confirmados na revisão que ainda não estão na lista: o usuário decide
+        "nomes_novos": irmaos.ausentes(job.speaker_names.values(),
+                                       irmaos.listar_seguro()),
     }
 
 
@@ -325,6 +328,60 @@ def list_voices():
 def forget_voice(nome: str):
     if not vozes.forget(nome):
         raise HTTPException(status_code=404, detail="Voz não encontrada.")
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Irmãos / nomes conhecidos (lista de nomes, sem biometria)
+# --------------------------------------------------------------------------
+_IRMAO_ID = re.compile(r"^[0-9a-f]{12}$")
+
+
+class IrmaoIn(BaseModel):
+    nome: str = Field("", max_length=120)
+    observacao: str = Field("", max_length=80)
+    grafias: list[str] = Field(default_factory=list, max_length=20)
+
+
+def _irmao_id_ou_404(id_: str) -> None:
+    if not _IRMAO_ID.match(id_):
+        raise HTTPException(status_code=404, detail="Nome não encontrado.")
+
+
+@app.get("/api/nomes")
+def list_nomes():
+    try:
+        lista = irmaos.listar()
+    except irmaos.IrmaoError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"nomes": [e.to_dict() for e in lista]}
+
+
+@app.post("/api/nomes", status_code=201)
+def create_nome(body: IrmaoIn):
+    try:
+        return irmaos.criar(body.nome, body.observacao, body.grafias).to_dict()
+    except irmaos.IrmaoError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/nomes/{id_}")
+def update_nome(id_: str, body: IrmaoIn):
+    _irmao_id_ou_404(id_)
+    try:
+        nova = irmaos.atualizar(id_, body.nome, body.observacao, body.grafias)
+    except irmaos.IrmaoError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if nova is None:
+        raise HTTPException(status_code=404, detail="Nome não encontrado.")
+    return nova.to_dict()
+
+
+@app.delete("/api/nomes/{id_}")
+def delete_nome(id_: str):
+    _irmao_id_ou_404(id_)
+    if not irmaos.apagar(id_):
+        raise HTTPException(status_code=404, detail="Nome não encontrado.")
     return {"ok": True}
 
 

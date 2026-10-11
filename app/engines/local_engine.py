@@ -22,14 +22,16 @@ os modelos estejam em models/ (o instalador/build já deixa lá).
 from __future__ import annotations
 
 import dataclasses
+import logging
 import re
 import threading
 
 import numpy as np
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from .. import config
+from .. import irmaos as _irmaos
 from . import diarize
 from .base import CORO_LABEL, CORO_TEXT, ProgressCB, Segment
 
@@ -103,7 +105,22 @@ def _extractor() -> diarize.EmbeddingExtractor:
         return _extractor_cache[path]
 
 
-def _hotwords(vocabulary: Optional[list[str]], language: Optional[str]) -> Optional[str]:
+HOTWORDS_MAX_CHARS = 400          # teto do texto de hotwords (antes cortava no meio)
+HOTWORDS_IRMAOS_CHARS = 160       # frase da lista de irmãos: nomes mais recentes que cabem
+_log = logging.getLogger(__name__)
+
+
+def _corta(text: str, limite: int) -> str:
+    """Corta no fim de uma frase, nunca no meio de uma palavra."""
+    if len(text) <= limite:
+        return text
+    cortado = text[:limite]
+    fim = cortado.rfind(". ")
+    return cortado[:fim + 1] if fim > 0 else cortado
+
+
+def _hotwords(vocabulary: Optional[list[str]], language: Optional[str],
+              irmaos: Sequence = ()) -> Optional[str]:
     """Texto reaplicado como contexto em toda janela de 30 s do Whisper.
 
     Escrito como FRASE PONTUADA, não como lista solta: no teste com uma
@@ -120,12 +137,17 @@ def _hotwords(vocabulary: Optional[list[str]], language: Optional[str]) -> Optio
             text = f"Reunião com {names[0]}."
         else:
             text = "Reunião de trabalho."
+        # Irmãos da lista (mais recentes primeiro), em frase pontuada à parte
+        frase = _irmaos.frase_irmaos(list(irmaos), HOTWORDS_IRMAOS_CHARS, excluir=names)
+        if frase:
+            text += f" {frase}"
         if terms:
             text += f" Assuntos: {', '.join(terms)}."
     else:
-        text = ", ".join(names + terms)
+        extra = [e.nome for e in irmaos if e.nome not in names]
+        text = ", ".join(names + extra + terms)
     # O prompt do Whisper tem limite (~224 tokens, metade p/ hotwords)
-    return text[:400] or None
+    return _corta(text, HOTWORDS_MAX_CHARS) or None
 
 
 LACO_JANELA_SECONDS = 60.0
@@ -278,6 +300,7 @@ class LocalEngine:
         from .. import vozes
 
         audio = _load_audio(audio_path)
+        entradas = _irmaos.listar_seguro(_log)     # lista de irmãos (só nomes)
 
         # ---- Fase 1: reconhecimento de vozes (antes de transcrever) --------
         progress("Fase 1/3 · Reconhecendo as vozes")
@@ -318,7 +341,7 @@ class LocalEngine:
             hallucination_silence_threshold=2.0,
             compression_ratio_threshold=2.4,
             no_speech_threshold=0.6,
-            hotwords=_hotwords(vocabulary, language),
+            hotwords=_hotwords(vocabulary, language, entradas),
         )
 
         words: list[diarize.Word] = []
@@ -371,7 +394,8 @@ class LocalEngine:
         # (dirigente chama e agradece). Sem a estrutura, nada muda.
         from .. import turnos
         out, pessoas, self.estudo_info = turnos.reatribui(
-            out, lambda a, b: diarize._embed_span(extractor, audio, a, b))
+            out, lambda a, b: diarize._embed_span(extractor, audio, a, b),
+            irmaos=entradas)
         self.estudo = [dataclasses.asdict(p) for p in pessoas]
 
         # Cânticos: um bloco "em coro" por trecho, fora da separação de falantes

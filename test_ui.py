@@ -147,6 +147,22 @@ def main() -> None:
             txt = page.evaluate(f"fetch('/api/jobs/{card.locator('[data-id]').first.get_attribute('data-id')}/file/txt').then(r => r.text())")
             assert "Rosilaine Andrade · 00:00:00" in txt and "Rosilene" not in txt and "ACME" in txt, txt
 
+            # Irmãos / nomes conhecidos: a revisão oferece o nome confirmado, só com o clique
+            card.get_by_role("button", name="Revisar nomes").click()
+            expect(page.locator("#dlgRev")).to_be_visible()
+            expect(page.locator("#revNovos")).to_contain_text("Rosilaine Andrade")
+            page.get_by_role("button", name="Adicionar à lista").first.click()
+            expect(page.locator("#toast")).to_contain_text("adicionado à lista")
+            page.locator("#dlgRev .dlg-rod [data-fechar]").click()
+            page.get_by_role("button", name="Irmãos / nomes conhecidos").click()
+            expect(page.locator("#dlgIrmaos")).to_be_visible()
+            expect(page.locator("#listaIrmaos")).to_contain_text("Rosilaine Andrade")
+            page.locator("#irmaoNome").fill("Ninfa")
+            page.locator("#irmaoGrafias").fill("Niffa")
+            page.get_by_role("button", name="Salvar nome").click()
+            expect(page.locator("#listaIrmaos")).to_contain_text("grafias: Niffa")
+            page.locator("#dlgIrmaos .dlg-rod [data-fechar]").click()
+
             # ---- e-mail -----------------------------------------------------------
             card.get_by_role("button", name="Enviar por e-mail").click()
             expect(page.locator("#dlgEmail")).to_be_visible()
