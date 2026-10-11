@@ -110,3 +110,52 @@ def test_nao_sugere_para_quem_ja_tem_nome_pela_voz():
     segs = [_seg(0, "A", "Valeu, Fernando."), _seg(4, "B", "Valeu."),
             _seg(8, "A", "Até mais, Fernando."), _seg(12, "B", "Tchau.")]
     assert infer(segs, exclude={"B"}) == {}
+
+
+# --------------------------------------------------------------------------
+# Sugestão por eliminação
+# --------------------------------------------------------------------------
+from app.nomes import ELIMINACAO_DETALHE, por_eliminacao  # noqa: E402
+
+
+def test_eliminacao_dois_participantes_um_deduzido():
+    # (a) 2 participantes, 1 falante já deduzido -> o outro recebe o restante
+    sugerido = por_eliminacao(["Falante 1", "Falante 2"],
+                              ["Eduardo Moretti", "Fernando TopVigia"],
+                              {"Falante 2": "Fernando TopVigia"})
+    assert sugerido == {"Falante 1": "Eduardo Moretti"}
+    assert ELIMINACAO_DETALHE == "único participante restante"
+
+
+def test_eliminacao_tolerante_a_caixa_acento_e_primeiro_nome():
+    # o nome deduzido pode ser só o primeiro nome / outra caixa
+    sugerido = por_eliminacao(["Falante 1", "Falante 2"],
+                              ["Eduardo Moretti", "José Fernando"],
+                              {"Falante 1": "FERNANDO"})
+    assert sugerido == {"Falante 2": "Eduardo Moretti"}
+
+
+def test_eliminacao_nao_sugere_com_3_participantes_e_2_vozes():
+    # (b) nº de falantes diferente do nº de participantes -> não sugere
+    assert por_eliminacao(["Falante 1", "Falante 2"],
+                          ["Ana", "Bia", "Carla"], {"Falante 2": "Bia"}) == {}
+
+
+def test_eliminacao_sem_participantes_nao_sugere():
+    # (c) participantes vazios
+    assert por_eliminacao(["Falante 1", "Falante 2"], [], {}) == {}
+    assert por_eliminacao(["Falante 1", "Falante 2"], ["", "  "], {}) == {}
+
+
+def test_eliminacao_dois_sem_nome_e_dois_livres_nao_sugere():
+    # (d) 2 falantes sem nome e 2 participantes livres -> não sugere
+    assert por_eliminacao(["Falante 1", "Falante 2"],
+                          ["Eduardo Moretti", "Fernando TopVigia"], {}) == {}
+
+
+def test_eliminacao_nunca_vai_para_a_memoria_de_vozes():
+    # a sugestão é só sugestão: learn() não é chamado com ela
+    sugerido = por_eliminacao(["Falante 1", "Falante 2"],
+                              ["Eduardo Moretti", "Fernando TopVigia"],
+                              {"Falante 2": "Fernando TopVigia"})
+    assert sugerido and vozes.list_people() == []

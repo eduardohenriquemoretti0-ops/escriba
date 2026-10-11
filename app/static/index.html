@@ -1139,7 +1139,7 @@ function renderRevisao(){
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
         <span class="qtd">${s.falas} falas · ${s.palavras} palavras</span></div>
-      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)} · ${esc(s.auto.detalhe)}</span>` : ""}
+      ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}</span>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
       <input type="text" list="listaPart" maxlength="80" data-label="${esc(s.label)}"
         value="${esc(s.nome || "")}" placeholder="Quem é? (opcional)"

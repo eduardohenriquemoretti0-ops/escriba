@@ -178,3 +178,51 @@ def _addressee(segs: list[Segment], i: int) -> Optional[str]:
         if segs[j].speaker != me:
             return segs[j].speaker
     return None
+
+
+ELIMINACAO_DETALHE = "único participante restante"
+
+
+def _participante_de(nome: str, participantes: list[str]) -> Optional[int]:
+    """Índice do participante a que um nome deduzido corresponde, ou None.
+
+    Compara sem caixa e sem acento, aceita o primeiro nome ("Fernando" ->
+    "Fernando TopVigia") e grafia parecida (mesmo limiar do FUZZY_MIN)."""
+    chave = _fold(nome)
+    melhor: Optional[int] = None
+    nota = 0.0
+    for i, p in enumerate(participantes):
+        score = max(SequenceMatcher(None, chave, _fold(p)).ratio(),
+                    SequenceMatcher(None, chave, _fold(p.split()[0])).ratio())
+        if score > nota:
+            melhor, nota = i, score
+    return melhor if nota >= FUZZY_MIN else None
+
+
+def por_eliminacao(falantes: Iterable[str], participantes: Iterable[str],
+                   nomeados: dict[str, str]) -> dict[str, str]:
+    """Sugere por eliminação: {rótulo: participante}, ou {} se não der.
+
+    Só sugere quando o nº de falantes é igual ao nº de participantes
+    informados, sobra exatamente 1 falante sem nome e exatamente 1
+    participante ainda não usado. `nomeados`: {rótulo: nome} já decididos
+    (voz, conversa ou informado pelo usuário).
+
+    É SUGESTÃO: o resultado nunca vai para a memória de vozes, que só
+    aprende o que o usuário confirma na revisão.
+    """
+    falantes = list(dict.fromkeys(falantes))
+    parts = [p.strip() for p in dict.fromkeys(participantes) if p and p.strip()]
+    if not parts or len(falantes) != len(parts):
+        return {}
+    sem_nome = [f for f in falantes if not (nomeados.get(f) or "").strip()]
+    usados: set[int] = set()
+    for nome in nomeados.values():
+        if nome and nome.strip():
+            idx = _participante_de(nome, parts)
+            if idx is not None:
+                usados.add(idx)
+    livres = [p for i, p in enumerate(parts) if i not in usados]
+    if len(sem_nome) != 1 or len(livres) != 1:
+        return {}
+    return {sem_nome[0]: livres[0]}

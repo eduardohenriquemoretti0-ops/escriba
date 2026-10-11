@@ -217,6 +217,13 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
         else:
             seen.add(auto[label]["nome"])
 
+    # 3º por eliminação: 1 falante sem nome + 1 participante livre (sugestão)
+    nomeados = {**job.speaker_names, **{lab: i["nome"] for lab, i in auto.items()}}
+    for label, nome in nomes.por_eliminacao(display.values(), job.participants,
+                                            nomeados).items():
+        auto[label] = {"nome": nome, "fonte": "eliminacao",
+                       "detalhe": nomes.ELIMINACAO_DETALHE}
+
     def mutate(j: jobs.Job) -> None:
         j.nomes_auto = auto
         for label, info in auto.items():
