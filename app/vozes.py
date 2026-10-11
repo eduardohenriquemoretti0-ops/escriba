@@ -20,6 +20,7 @@ Regras:
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -27,7 +28,7 @@ from typing import Optional
 
 import numpy as np
 
-from . import config
+from . import arquivo_seguro, config
 
 _lock = threading.RLock()
 
@@ -49,25 +50,31 @@ def _model_id() -> str:
     return Path(config.DIARIZATION_MODEL).stem
 
 
+def _destino_antigo(f: Path, modelo: str) -> Path:
+    """Nome livre para guardar o arquivo de outro modelo (nunca sobrescreve)."""
+    marca = re.sub(r"[^\w-]", "_", modelo) or "antigo"
+    alvo = f.with_suffix(f".{marca}.json")
+    if alvo.exists():
+        alvo = f.with_suffix(f".{marca}.{int(time.time())}.json")
+    return alvo
+
+
 def _load() -> dict:
     f = _file()
     if not f.exists():
         return {"modelo": _model_id(), "pessoas": {}}
-    data = json.loads(f.read_text(encoding="utf-8"))
+    data = json.loads(f.read_text(encoding="utf-8-sig"))
     if data.get("modelo") != _model_id():
         # Assinaturas de outro modelo não são comparáveis: começa do zero,
         # mas guarda o arquivo antigo em vez de apagar.
-        f.rename(f.with_suffix(f".{data.get('modelo', 'antigo')}.json"))
+        arquivo_seguro.trocar(f, _destino_antigo(f, str(data.get("modelo", "antigo"))),
+                              aberto=f)
         return {"modelo": _model_id(), "pessoas": {}}
     return data
 
 
 def _save(data: dict) -> None:
-    f = _file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(f)
+    arquivo_seguro.gravar_texto(_file(), json.dumps(data, ensure_ascii=False))
 
 
 def _signature(person: dict) -> Optional[np.ndarray]:

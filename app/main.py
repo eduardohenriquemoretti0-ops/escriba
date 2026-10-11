@@ -15,11 +15,22 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import json
+import logging
 
 from . import (config, exports, irmaos, jobs, mailer, media, pdfdocs, profile,
                review, vozes, worker)
+from . import arquivo_seguro
+from .arquivo_seguro import ArquivoBloqueado
+
+log = logging.getLogger("escriba")
 
 app = FastAPI(title="Escriba", docs_url="/api/docs")
+
+
+@app.exception_handler(ArquivoBloqueado)
+async def _arquivo_bloqueado(request: Request, exc: ArquivoBloqueado) -> JSONResponse:
+    """Arquivo de dados aberto em outro programa (Windows): mensagem para a tela."""
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 
 # Modo programa (escriba_app.py): só a janela do Escriba, que recebeu o token
 # desta sessão, pode usar a API. Outra aba de navegador ou outro programa que
@@ -105,11 +116,13 @@ def _file_for(job: jobs.Job, kind: str) -> tuple[Path, str, str]:
                 path = pdfdocs.transcript_pdf(job)
         except pdfdocs.PdfError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 — WeasyPrint sem libs, etc.
+        except arquivo_seguro.ArquivoBloqueado:
+            raise          # PDF aberto no leitor (Windows): o handler devolve 409
+        except Exception as exc:  # noqa: BLE001 — falha inesperada ao gerar o PDF
+            log.exception("Falha ao gerar o PDF do job %s", job.id)
             raise HTTPException(
                 status_code=500,
-                detail=f"Não consegui gerar o PDF: {exc}. Confira se as "
-                       "bibliotecas do WeasyPrint estão instaladas (README).",
+                detail=f"Não consegui gerar o PDF: {exc}. Veja o registro (escriba.log).",
             ) from exc
         return path, "application/pdf", f"{stem}_{_PDF_KINDS[kind]}.pdf"
     raise HTTPException(status_code=404, detail="Formato inválido.")

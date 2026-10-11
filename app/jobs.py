@@ -109,7 +109,7 @@ def load(job_id: str) -> Optional[Job]:
     meta = config.JOBS_DIR / job_id / "meta.json"
     if not meta.exists():
         return None
-    data = json.loads(meta.read_text(encoding="utf-8"))
+    data = json.loads(meta.read_text(encoding="utf-8-sig"))
     return Job(**data)
 
 
@@ -132,7 +132,7 @@ def list_jobs() -> list[Job]:
     jobs = []
     for meta in config.JOBS_DIR.glob("*/meta.json"):
         try:
-            jobs.append(Job(**json.loads(meta.read_text(encoding="utf-8"))))
+            jobs.append(Job(**json.loads(meta.read_text(encoding="utf-8-sig"))))
         except Exception:
             continue
     return sorted(jobs, key=lambda j: j.created_at, reverse=True)

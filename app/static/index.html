@@ -434,7 +434,7 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
     <label class="campo">Nº de participantes (opcional)
       <input type="number" id="falantes" min="1" max="30" placeholder="ex.: 5">
     </label>
-    <label class="chk"><input type="checkbox" id="ata">Gerar ata da reunião (IA)</label>
+    <label class="chk"><input type="checkbox" id="ata">Gerar ata da reunião</label>
     <div class="campo larg" style="flex-basis:100%">Participantes (opcional)
       <div class="part-lista" id="partUpload"></div>
       <button class="btn" type="button" id="btnAddPartUpload">+ Adicionar participante</button>
@@ -442,8 +442,10 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
     <p class="dica">Antes de transcrever, o Escriba reconhece quantas vozes há na
     gravação e quais ele já conhece. Depois descobre os nomes pela conversa
     (quem é chamado pelo nome). Informar os participantes, com a grafia
-    correta, ajuda nas duas coisas. A ata usa a API da Anthropic e exige chave
-    no <span class="mono">.env</span>.</p>
+    correta, ajuda nas duas coisas. A ata usa a IA da Anthropic quando há chave
+    no <span class="mono">.env</span>. Sem a chave, o Escriba faz a ata aqui mesmo, só
+    com a estrutura da reunião (data, presidente, orador, cânticos e comentaristas),
+    sem resumir o conteúdo.</p>
   </div>
 
   <div class="enviando" id="enviando">

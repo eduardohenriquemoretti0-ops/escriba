@@ -40,9 +40,73 @@ modelos (~1,7 GB, precisa de internet só nessa hora). Depois disso, abre direto
 
 ### Gerar o executável
 O PyInstaller só gera executável para o sistema onde roda:
-- **Windows:** numa máquina Windows 10/11 com Python 3.11+, rode `build_windows.bat`.
-  Sai `dist\Escriba\Escriba.exe` e `dist\Escriba-windows-amd64.zip`.
+- **Windows:** siga a seção [Windows](#windows) (Python 3.11 ou 3.12 e `build_windows.bat`).
 - **Linux:** `python build.py` gera `dist/Escriba/Escriba`.
+  O build recusa rodar com o Escriba aberto.
+
+---
+
+## Windows
+
+**Requisitos**
+- **Microsoft Edge WebView2 Runtime.** A janela do Escriba usa esse componente, que já
+  vem na maioria dos Windows 10 e 11 atualizados. Sem ele, o pywebview cairia no IE11 e a
+  tela quebraria sem aviso; por isso o Escriba confere antes de abrir a janela. Se faltar,
+  mostra uma caixa com o link oficial do instalador
+  (Evergreen Bootstrapper: `https://go.microsoft.com/fwlink/p/?LinkId=2124703`) e oferece
+  abrir no navegador padrão, que continua offline.
+- **.NET Framework 4.6.2 ou mais** (já vem no Windows 10 e 11).
+- **Python 3.11 ou 3.12** para gerar o executável. O 3.13 ainda não foi verificado.
+
+**Gerar o `Escriba.exe`** (num PC Windows, com internet; o PyInstaller não faz build cruzado)
+1. Descompacte o `Escriba-windows-fonte.zip` numa pasta de trabalho. Ele tem o código,
+   `requirements.txt`, `escriba.spec`, `escriba.ico`, `build_windows.bat`, `run.bat`, este
+   README e a pasta `models/` (Whisper large-v3-turbo e o modelo de vozes).
+2. Confira que existem `models\whisper\large-v3-turbo\model.bin` e
+   `models\diarizacao\nemo_en_titanet_small.onnx`.
+3. Feche o Escriba, se estiver aberto.
+4. Dê dois cliques em `build_windows.bat` (ou rode-o no terminal). Ele:
+   - cria `.venv-build` com Python 3.12 (ou 3.11, se for o que houver);
+   - instala `requirements.txt` e o PyInstaller 6.22.3 (versões fixadas);
+   - roda `build.py`, que copia os modelos para junto do programa, gera com o PyInstaller
+     e monta o zip.
+   Cada etapa confere o código de saída: se uma falhar, o script para com a mensagem.
+   O build também recusa se o `Escriba.exe` estiver em execução.
+5. Resultado: `dist\Escriba\Escriba.exe` e `dist\escriba-windows-amd64.zip`. Entregue a
+   pasta `dist\Escriba` inteira, ou o zip.
+
+Para validar o executável antes de entregar, rode uma transcrição completa pelo
+`Escriba.exe` (não pelo código-fonte) e confira a transcrição, a ata e os dois PDFs.
+
+**Rodar pelo código-fonte:** `run.bat`. Na primeira vez cria o `.venv`, mostra na tela os
+erros do pip (sem `-q`) e baixa os modelos. O `pythonw` abre só a janela do programa.
+
+**Onde ficam os dados**
+- Programa empacotado (`Escriba.exe`): `%USERPROFILE%\Escriba` (ex.: `C:\Users\<você>\Escriba`).
+  - `jobs\`: transcrições, atas e PDFs de cada reunião.
+  - `profile\`: perfil e assinatura do cliente.
+  - `nomes\nomes.json`: a lista de irmãos (nomes, observação para homônimos e grafias erradas).
+  - `vozes\vozes.json`: vozes conhecidas (dado biométrico; apague pela tela "Vozes conhecidas").
+  - `escriba.log`: registro de erros para o suporte.
+- Pelo código-fonte (`run.bat`): a pasta `data\` do projeto, ou `ESCRIBA_DATA_DIR` no `.env`.
+
+**Ata sem chave de API**
+Sem `ANTHROPIC_API_KEY` no `.env`, a ata é gerada localmente (`app/ata_local.py`), sem
+internet e sem IA. Ela traz data e duração, presidente, orador e tema, dirigente e leitor,
+cânticos com número, comentaristas com a contagem e os participantes informados. Não
+resume o conteúdo dos comentários. Os nomes são sugestões do motor e a revisão é que
+confirma. Com a chave, a ata é feita pela IA.
+
+**PDF no Windows (fpdf2)**
+No Linux, os PDFs da ata e da transcrição saem pelo WeasyPrint. No Windows ele precisa de
+Pango/GTK, que o programa não traz. Quando o WeasyPrint não carrega, `app/pdfdocs.py` gera o
+mesmo conteúdo com o **fpdf2** (Python puro), fixado em `requirements.txt`, com a fonte
+DejaVu Sans embutida (`app/fonts/`, licença Bitstream Vera, ver `LICENCA-DejaVu.txt`). O
+layout é mais simples: cabeçalho com título, data e duração; participantes; falas com o
+nome em negrito; ata em tópicos e tabelas; bloco de assinaturas. A hora de cada fala só
+aparece quando o PDF é pedido com `show_times=True`, como no PDF do Linux.
+Se o PDF estiver aberto no leitor, o Escriba avisa e pede para fechá-lo (HTTP 409), em vez
+de dar erro interno.
 
 O modo servidor antigo (navegador em `localhost:8000`) continua disponível em
 `run_servidor.py`, para quem quiser usar o Escriba pela rede.
@@ -204,6 +268,7 @@ registrado no card da transcrição.
 
 ```bash
 python -m pytest test_diarize.py test_vozes_nomes.py   # diarização, vozes e nomes
+python -m pytest tests/     # ata local, irmãos, PDF de reserva (fpdf2), salvar, janela
 python test_integracao.py   # fluxo original (sem chaves de API)
 python test_v2.py           # nomes, correções, assinatura, PDFs, e-mail (SMTP local)
 python test_ui.py           # opcional: tela num Chromium (pip install playwright && playwright install chromium)
@@ -241,7 +306,8 @@ escriba/
 │   ├── vozes.py               # memória de vozes (aprende a cada revisão)
 │   ├── nomes.py               # descobre nomes pela conversa
 │   ├── profile.py             # perfil do cliente + imagem da assinatura
-│   ├── pdfdocs.py             # PDF da ata e da transcrição (WeasyPrint)
+│   ├── pdfdocs.py             # PDF da ata e da transcrição (WeasyPrint; fpdf2 no Windows)
+│   ├── arquivo_seguro.py      # gravação com nova tentativa (arquivo aberto no Windows)
 │   ├── mailer.py              # envio por SMTP
 │   ├── media.py               # PyAV: validação, conversão, duração
 │   ├── jobs.py                # estado persistido em data/jobs/{id}/meta.json

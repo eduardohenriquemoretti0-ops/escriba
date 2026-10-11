@@ -10,17 +10,73 @@ FUNCIONA SEM INTERNET
   inteiramente neste computador. Se a internet cair no meio da reunião,
   nada muda. Só precisam de internet:
     - o motor "AssemblyAI" (opcional, na nuvem);
-    - a ata automática por IA e o envio por e-mail.
+    - a ata automática por IA (com chave da Anthropic) e o envio por e-mail.
 
 ONDE FICAM OS ARQUIVOS
   Transcrições, atas e perfil: pasta "Escriba" dentro da pasta do usuário
     (Windows: C:\Users\<você>\Escriba   Linux: ~/Escriba)
+  Lista de irmãos (nomes, observações e grafias): Escriba\nomes\nomes.json
+  Vozes conhecidas: Escriba\vozes\vozes.json (dado biométrico; apague pela tela)
   Registro de erros (para o suporte): Escriba\escriba.log
 
 CONFIGURAÇÕES (opcional)
   Copie ".env.example" para ".env" (ao lado do programa ou na pasta Escriba)
   e preencha só o que for usar: chave da ata (ANTHROPIC_API_KEY), e-mail (SMTP_*),
   termos frequentes da empresa (ESCRIBA_TERMOS), modelo (WHISPER_MODEL).
+
+ATA SEM CHAVE
+  Sem ANTHROPIC_API_KEY, a ata é feita aqui mesmo, sem internet e sem IA. Ela traz
+  a estrutura da reunião: data e duração, presidente, orador e tema, dirigente e
+  leitor, cânticos com número, comentaristas com a contagem e os participantes
+  informados. Não resume o conteúdo dos comentários. Os nomes são sugestões do
+  motor: confira na revisão antes de confirmar.
+  Com a chave, a ata é feita pela IA.
+
+PDF NO WINDOWS
+  No Linux, o PDF da ata e da transcrição sai pelo WeasyPrint. No Windows o
+  WeasyPrint precisa do Pango/GTK, que o programa não traz. Por isso o Escriba
+  gera o PDF com a biblioteca fpdf2 (Python puro), com a fonte DejaVu embutida
+  (acentos e ç funcionam). O layout é mais simples: cabeçalho com título, data e
+  duração; participantes; falas com o nome em negrito; ata em tópicos e tabelas;
+  e o bloco de assinaturas.
+  Se o PDF estiver aberto no leitor (Acrobat, por exemplo), feche-o: o Escriba
+  avisa e você tenta de novo.
+
+WINDOWS: REQUISITOS
+  - Microsoft Edge WebView2 Runtime. A janela do Escriba usa esse componente, que
+    já vem em quase todo Windows 10 e 11 atualizado. Se ele faltar, o Escriba avisa
+    e mostra o link oficial do instalador:
+      https://go.microsoft.com/fwlink/p/?LinkId=2124703
+    Enquanto isso, o Escriba pode abrir no navegador padrão (continua offline).
+  - .NET Framework 4.6.2 ou mais (já vem no Windows 10 e 11).
+
+WINDOWS: GERAR O ESCRIBA.EXE (para quem vai montar o programa)
+  O PyInstaller só gera o executável no mesmo sistema onde roda. Faça isto num PC
+  Windows 10 ou 11, com internet:
+  1. Instale o Python 3.12 (ou 3.11), marcando "Add python.exe to PATH".
+     O 3.13 ainda não foi verificado.
+  2. Descompacte o "Escriba-windows-fonte.zip" numa pasta de trabalho.
+  3. Confira que existem: models\whisper\large-v3-turbo\model.bin e
+     models\diarizacao\nemo_en_titanet_small.onnx.
+  4. Feche o Escriba, se ele estiver aberto (o build recusa com ele aberto).
+  5. Dê dois cliques em build_windows.bat. Ele cria o ambiente .venv-build,
+     instala requirements.txt e o PyInstaller 6.22.3, e gera o programa.
+     Se alguma etapa falhar, o script para ali e mostra a mensagem.
+  6. Resultado: dist\Escriba\Escriba.exe e dist\escriba-windows-amd64.zip.
+     Entregue a pasta inteira dist\Escriba, ou o zip.
+  Para testar antes de entregar: abra o Escriba.exe, envie um áudio curto e
+  confira a transcrição, a ata e os dois PDFs.
+
+WINDOWS: RODAR PELO CÓDIGO-FONTE
+  Dê dois cliques em run.bat. Na primeira vez ele cria o ambiente .venv e instala
+  as dependências, mostrando os erros do pip na tela, e baixa os modelos.
+
+DICAS PARA MELHOR RESULTADO
+  - Informe os nomes dos participantes no envio: o motor passa a preferir
+    a grafia certa deles.
+  - Informe quantas pessoas falaram (mín./máx.): a separação de vozes melhora.
+  - Tempo de processamento no motor local (CPU comum de 4 núcleos): cerca de
+    metade da duração do áudio (medido: 0,47 x a duração).
 
 O ESCRIBA APRENDE AS VOZES
   Antes de transcrever, ele conta quantas pessoas falam e reconhece quem já
@@ -29,13 +85,7 @@ O ESCRIBA APRENDE AS VOZES
   essas pessoas sozinho nas próximas reuniões. "Vozes conhecidas" mostra e
   apaga as vozes guardadas. Guarde vozes só com o consentimento das pessoas.
 
-DICAS PARA MELHOR RESULTADO
-  - Informe os nomes dos participantes no envio: o motor passa a preferir
-    a grafia certa deles.
-  - Informe quantas pessoas falaram (mín./máx.): a separação de vozes melhora.
-  - Tempo de processamento no motor local (CPU comum): cerca de 1x a duração
-    do áudio. Uma reunião de 1 h leva por volta de 1 h.
-
 CRÉDITOS DOS MODELOS
   Transcrição: OpenAI Whisper large-v3-turbo (MIT), versão CTranslate2 da Mobius Labs.
   Falantes: NVIDIA NeMo TitaNet-small (CC-BY-4.0), via projeto sherpa-onnx (Apache-2.0).
+  Fonte do PDF: DejaVu Sans (licença Bitstream Vera; ver app\fonts\LICENCA-DejaVu.txt).

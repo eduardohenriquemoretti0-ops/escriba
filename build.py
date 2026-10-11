@@ -6,6 +6,9 @@ Rode no MESMO sistema do destino (o PyInstaller não faz build cruzado):
 """
 from __future__ import annotations
 
+import csv
+import io
+import os
 import platform
 import shutil
 import subprocess
@@ -16,12 +19,7 @@ ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist" / "Escriba"
 
 
-def _programa_aberto() -> list[int]:
-    """PIDs do Escriba empacotado em execução (Linux). Refazer o build por
-    cima de um programa aberto quebra imports tardios dele com
-    "Error -3 while decompressing data: incorrect header check"."""
-    import os
-
+def _pids_linux() -> list[int]:
     exe = str(DIST / "Escriba")
     pids = []
     for proc in Path("/proc").glob("[0-9]*"):
@@ -35,8 +33,29 @@ def _programa_aberto() -> list[int]:
     return pids
 
 
+def _pids_windows() -> list[int]:
+    """PIDs de Escriba.exe pelo tasklist (o Windows não expõe o caminho aqui)."""
+    saida = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq Escriba.exe", "/FO", "CSV", "/NH"],
+        capture_output=True, text=True, errors="replace", check=False).stdout
+    pids = []
+    for linha in csv.reader(io.StringIO(saida)):
+        if len(linha) >= 2 and linha[0].lower() == "escriba.exe" and linha[1].isdigit():
+            pids.append(int(linha[1]))
+    return pids
+
+
+def _programa_aberto() -> list[int]:
+    """PIDs do Escriba empacotado em execução. Refazer o build por cima de um
+    programa aberto quebra imports tardios dele com
+    "Error -3 while decompressing data: incorrect header check"."""
+    if sys.platform.startswith("win"):
+        return _pids_windows()
+    return _pids_linux()
+
+
 def main() -> None:
-    if sys.platform.startswith("linux") and (pids := _programa_aberto()):
+    if pids := _programa_aberto():
         sys.exit(f"Feche o Escriba antes de gerar o build (aberto: PID {pids}).")
     subprocess.run([sys.executable, "baixar_modelos.py"], cwd=ROOT, check=True)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",

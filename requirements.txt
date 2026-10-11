@@ -10,15 +10,20 @@ av==13.1.0            # PIN: PyAV >=14 quebra o faster-whisper 1.2.1; também su
 sherpa-onnx>=1.12     # embedding de voz p/ identificar falantes (sem PyTorch)
 numpy>=1.26
 
-# Programa de desktop (janela própria, sem navegador)
-pywebview>=5.0
-pywebview[qt]>=5.0; sys_platform == "linux"   # no Windows usa o WebView2 do sistema
+# Programa de desktop (janela própria, sem navegador). Versão fixada: a checagem
+# do WebView2 em escriba_app.py replica as chaves do pywebview 6.2.1.
+pywebview==6.2.1
+pywebview[qt]==6.2.1; sys_platform == "linux"   # no Windows usa o WebView2 do sistema
 
 # Opcionais
 assemblyai>=0.30      # motor na nuvem
 anthropic>=0.40       # ata automática
 
 # PDFs, assinatura, e-mail (v2)
-weasyprint>=62        # precisa de Pango (Linux: já vem; Windows: ver README)
+weasyprint>=62        # Linux: precisa de Pango (já vem). Windows: não carrega sem GTK
+fpdf2==2.8.9          # PDF de reserva (Python puro), usado quando o WeasyPrint não carrega
 markdown>=3.5
 pillow>=10.0
+
+# Gerar o executável (build_windows.bat / build.py). Mesma versão do venv de desenvolvimento.
+pyinstaller==6.22.3

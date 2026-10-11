@@ -40,7 +40,7 @@ def load() -> dict:
     data = {k: "" for k in FIELDS}
     if PROFILE_JSON.exists():
         try:
-            saved = json.loads(PROFILE_JSON.read_text(encoding="utf-8"))
+            saved = json.loads(PROFILE_JSON.read_text(encoding="utf-8-sig"))
             data.update({k: str(saved.get(k, "")) for k in FIELDS})
         except (OSError, ValueError):
             pass

@@ -26,7 +26,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
-from . import config
+from . import arquivo_seguro, config
 
 LIMITE_CORRECAO = 0.80     # "Niffa" ~ "Ninfa" = 0,80; "Admir" ~ "Nadir" = 0,80 (ver docs)
 MARGEM_EMPATE = 0.02       # dois candidatos quase iguais: não corrige
@@ -129,7 +129,7 @@ def _ler() -> list[Entrada]:
     if not f.exists():
         return []
     try:
-        data = json.loads(f.read_text(encoding="utf-8"))
+        data = json.loads(f.read_text(encoding="utf-8-sig"))
         return [_de_dict(d) for d in data.get("nomes", [])]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise IrmaoError("A lista de nomes (nomes.json) está ilegível. "
@@ -137,14 +137,12 @@ def _ler() -> list[Entrada]:
 
 
 def _gravar(entradas: list[Entrada]) -> None:
-    f = _file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".json.tmp")
     corpo = {"versao": 1, "nomes": [
         {"id": e.id, "nome": e.nome, "observacao": e.observacao,
          "grafias": list(e.grafias), "atualizado": e.atualizado} for e in entradas]}
-    tmp.write_text(json.dumps(corpo, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(f)
+    # Windows: o arquivo pode estar aberto em outro programa; tenta de novo e,
+    # se não der, levanta ArquivoBloqueado (a API responde 409 com a mensagem).
+    arquivo_seguro.gravar_texto(_file(), json.dumps(corpo, ensure_ascii=False, indent=2))
 
 
 def listar() -> list[Entrada]:
