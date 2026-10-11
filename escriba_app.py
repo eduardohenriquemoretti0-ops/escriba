@@ -21,6 +21,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+log = logging.getLogger("escriba")
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -54,11 +56,89 @@ def _wait_ready(url: str, timeout: float = 60.0) -> None:
     raise RuntimeError("O servidor interno do Escriba não respondeu.")
 
 
+class JsApi:
+    """Métodos que a página chama por `window.pywebview.api` (só no programa).
+
+    O pywebview roda cada chamada numa thread própria, então é seguro abrir o
+    diálogo daqui. Métodos e atributos com `_` não ficam expostos à página.
+    """
+
+    def __init__(self) -> None:
+        self._janela = None            # preenchido logo após create_window
+        self._lock = threading.Lock()  # um diálogo de salvar por vez
+        self._ultima_pasta: Path | None = None
+
+    def salvar_arquivo(self, job_id: str, kind: str, nome_sugerido: str = "") -> dict:
+        """Pede o caminho ao usuário e grava o arquivo pedido.
+
+        Args:
+            job_id: Id do job (validado em `app.salvar`).
+            kind: Tipo do arquivo (lista branca em `app.salvar`).
+            nome_sugerido: Nome preferido; é sanitizado no servidor.
+
+        Returns:
+            `{"status": "salvo", "caminho": ...}`, `{"status": "cancelado"}` ou
+            `{"status": "erro", "mensagem": ...}`. O "salvo" só vem depois de o
+            arquivo estar gravado.
+        """
+        from app import salvar
+
+        if not self._lock.acquire(blocking=False):
+            return {"status": "erro", "mensagem": "Já há uma janela de salvar aberta."}
+        try:
+            return self._salvar(salvar, job_id, kind, nome_sugerido)
+        except salvar.SalvarError as exc:
+            log.warning("Salvar %s/%s falhou: %s", job_id, kind, exc)
+            return {"status": "erro", "mensagem": str(exc)}
+        except Exception as exc:  # noqa: BLE001 — fronteira da API: registra e avisa
+            log.exception("Erro inesperado ao salvar %s/%s", job_id, kind)
+            return {"status": "erro", "mensagem": f"Não consegui salvar: {exc}"}
+        finally:
+            self._lock.release()
+
+    def _salvar(self, salvar, job_id: str, kind: str, nome_sugerido: str) -> dict:
+        arquivo = salvar.preparar(job_id, kind)   # valida antes de abrir diálogo
+        if self._janela is None:
+            raise salvar.SalvarError("A janela do Escriba não está pronta.")
+
+        extensao = arquivo.extensao
+        nome = salvar.nome_seguro(nome_sugerido, extensao, arquivo.nome)
+        escolha = self._janela.create_file_dialog(
+            _tipo_salvar(),
+            directory=str(self._pasta_inicial()),
+            save_filename=nome,
+            file_types=(f"Arquivo {extensao.upper()} (*.{extensao})",),
+        )
+        if not escolha:
+            return {"status": "cancelado"}
+
+        destino = Path(escolha[0])
+        if not destino.name.lower().endswith(f".{extensao}"):
+            destino = destino.with_name(f"{destino.name}.{extensao}")
+        gravado = salvar.gravar(arquivo.origem, destino)
+        self._ultima_pasta = gravado.parent
+        log.info("Arquivo salvo pela janela: %s", gravado)
+        return {"status": "salvo", "caminho": str(gravado)}
+
+    def _pasta_inicial(self) -> Path:
+        if self._ultima_pasta and self._ultima_pasta.is_dir():
+            return self._ultima_pasta
+        downloads = Path.home() / "Downloads"
+        return downloads if downloads.is_dir() else Path.home()
+
+
+def _tipo_salvar():
+    """`FileDialog.SAVE` (pywebview 5+/6); cai para `SAVE_DIALOG` em versões antigas."""
+    import webview
+
+    fd = getattr(webview, "FileDialog", None)
+    return fd.SAVE if fd is not None else webview.SAVE_DIALOG
+
+
 def main() -> None:
     token = secrets.token_urlsafe(24)
     os.environ["ESCRIBA_SESSION_TOKEN"] = token   # lido pelo app.main
     log_file = _setup_logging()
-    log = logging.getLogger("escriba")
 
     import uvicorn
 
@@ -92,8 +172,11 @@ def main() -> None:
     else:
         webview.settings["ALLOW_DOWNLOADS"] = True       # baixar TXT/PDF/...
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-        webview.create_window("Escriba — transcrição de reuniões", url,
-                              width=1280, height=860, min_size=(900, 600))
+        api = JsApi()
+        janela = webview.create_window("Escriba — transcrição de reuniões", url,
+                                       width=1280, height=860, min_size=(900, 600),
+                                       js_api=api)
+        api._janela = janela   # o diálogo de salvar sai por aqui
         gui = "qt" if sys.platform.startswith("linux") else None   # Windows: WebView2
         webview.start(gui=gui, private_mode=False)
 

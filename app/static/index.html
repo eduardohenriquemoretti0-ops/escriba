@@ -876,10 +876,30 @@ function downloadsHTML(job){
   const disp = job.outputs || [];
   const links = ORDEM_ARQ.filter(k => disp.includes(k)).map(k =>
     `<a class="btn ${DESTAQUE.has(k) ? "principal" : ""}"
-        href="/api/jobs/${job.id}/file/${k}">${NOMES_ARQ[k] || k}</a>`).join("");
+        href="/api/jobs/${job.id}/file/${k}"
+        data-job="${job.id}" data-kind="${k}">${NOMES_ARQ[k] || k}</a>`).join("");
   return `<div class="downloads"><span class="rot">Baixar</span>${links}
     <button class="btn excluir" type="button" data-acao="excluir" data-id="${job.id}">Excluir</button></div>`;
 }
+
+// Salvar: no programa (pywebview) o arquivo é gravado pelo lado Python, no
+// caminho que o usuário escolher. No navegador (run_servidor.py) o link HTTP
+// continua baixando normalmente. Sucesso só é mostrado depois de gravado.
+document.addEventListener("click", async (ev) => {
+  const a = ev.target.closest("a[data-kind][data-job]");
+  if (!a) return;
+  const api = window.pywebview?.api;
+  if (!api || typeof api.salvar_arquivo !== "function") return;   // navegador
+  ev.preventDefault();
+  try {
+    const r = await api.salvar_arquivo(a.dataset.job, a.dataset.kind, "");
+    if (r.status === "salvo") avisar(`Arquivo salvo em: ${r.caminho}`, "ok");
+    else if (r.status === "cancelado") avisar("Salvamento cancelado. Nada foi gravado.");
+    else avisar(r.mensagem || "Não consegui salvar o arquivo.", "erro");
+  } catch (err) {
+    avisar(`Não consegui salvar o arquivo: ${err?.message || err}`, "erro");
+  }
+});
 
 function cardHTML(job){
   const dur = job.duration ? ` · ${hms(job.duration)}` : "";
