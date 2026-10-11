@@ -33,9 +33,22 @@ MIN_EMBED_SECONDS = 1.0
 EMBED_WINDOW_SECONDS = 6.0
 # Pausa entre palavras que encerra uma frase mesmo sem pontuação.
 SENTENCE_GAP_SECONDS = 0.8
+# Pausa longa o bastante para cortar mesmo sem pontuação. Abaixo disso, um
+# fragmento sem ponto final segue na frase seguinte ("A gente tem que" +
+# "ser mais um arrasto." não viram duas falas).
+SENTENCE_GAP_LONG_SECONDS = 1.5
 # Frase muito longa sem pontuação é quebrada para não esconder trocas.
 MAX_SENTENCE_SECONDS = 15.0
 _SENTENCE_END = (".", "?", "!", "…")
+
+# Estimativa automática do nº de falantes: teto e limiares do pós-processamento.
+# Medido no salão (reunião de 1 pessoa 07:07–36:30 + estudo com vários falantes):
+# o eigengap sem trava dá k=4, e blocos de 3 min da mesma pessoa têm cosseno
+# 0,94–0,98 entre si. Vozes diferentes ficam em torno de 0,2.
+MAX_SPEAKERS_AUTO = 12
+MERGE_SIMILARITY = 0.80      # centróides acima disso são a mesma pessoa
+ABSORB_SECONDS = 45.0        # cluster com menos tempo de fala que isso é absorvido
+SHORT_SMOOTH_SECONDS = 1.5   # frase curta entre duas do mesmo falante herda esse falante
 
 
 @dataclass
@@ -71,13 +84,19 @@ class Sentence:
 # 2) Palavras -> frases
 # --------------------------------------------------------------------------
 def build_sentences(words: Sequence[Word]) -> list[Sentence]:
+    """Palavras -> frases. Corta em pontuação final, em pausa longa ou quando
+    a frase fica longa demais. Pausa curta só corta se a frase anterior já
+    terminou em pontuação: fragmento sem ponto segue com a próxima palavra."""
     sentences: list[Sentence] = []
     cur = Sentence()
     for w in words:
         if cur.words:
             gap = w.start - cur.words[-1].end
             too_long = w.end - cur.start > MAX_SENTENCE_SECONDS
-            if gap >= SENTENCE_GAP_SECONDS or too_long:
+            ends = cur.words[-1].text.strip().endswith(_SENTENCE_END)
+            pausa = gap >= SENTENCE_GAP_LONG_SECONDS or (
+                gap >= SENTENCE_GAP_SECONDS and ends)
+            if pausa or too_long:
                 sentences.append(cur)
                 cur = Sentence()
         cur.words.append(w)
@@ -166,16 +185,79 @@ def _kmeans(x: np.ndarray, k: int, seed: int = 0, n_init: int = 10,
     return best_labels
 
 
+def _compact(labels: np.ndarray) -> np.ndarray:
+    _, inv = np.unique(labels, return_inverse=True)
+    return inv.reshape(labels.shape)
+
+
+def _unit_centroids(emb: np.ndarray, labels: np.ndarray, k: int) -> np.ndarray:
+    c = np.stack([emb[labels == j].mean(0) for j in range(k)])
+    return c / (np.linalg.norm(c, axis=1, keepdims=True) + 1e-9)
+
+
+def refine(labels: np.ndarray, emb: np.ndarray, secs: np.ndarray, lo: int = 1,
+           merge_sim: float = MERGE_SIMILARITY,
+           absorb_secs: float = ABSORB_SECONDS) -> np.ndarray:
+    """Pós-processo do agrupamento (não mexe abaixo de `lo` falantes).
+
+    1. Funde clusters cujos centróides são a mesma voz (cosseno >= merge_sim):
+       o k-means separa um mesmo orador em vários grupos quando há eco, PA ou
+       ruído de sala.
+    2. Absorve no vizinho mais parecido o cluster com pouco tempo de fala
+       (menos de absorb_secs): quase sempre é trecho de cântico ou ruído.
+    """
+    labels = _compact(labels)
+    # 1) fusão pelo par mais parecido, até não sobrar par acima do limiar
+    while labels.max() + 1 > lo:
+        k = int(labels.max()) + 1
+        c = _unit_centroids(emb, labels, k)
+        sim = c @ c.T
+        np.fill_diagonal(sim, -1.0)
+        i, j = np.unravel_index(int(np.argmax(sim)), sim.shape)
+        if sim[i, j] < merge_sim:
+            break
+        labels = _compact(np.where(labels == j, i, labels))
+    # 2) absorção do cluster com menos tempo de fala
+    while labels.max() + 1 > lo:
+        k = int(labels.max()) + 1
+        tot = np.array([secs[labels == j].sum() for j in range(k)])
+        j = int(np.argmin(tot))
+        if tot[j] >= absorb_secs:
+            break
+        c = _unit_centroids(emb, labels, k)
+        sim = c @ c[j]
+        sim[j] = -np.inf
+        i = int(np.argmax(sim))
+        labels = _compact(np.where(labels == j, i, labels))
+    return labels
+
+
 def cluster(emb: np.ndarray, min_speakers: Optional[int] = None,
-            max_speakers: Optional[int] = None) -> np.ndarray:
-    """Rótulo (0..k-1) para cada embedding. k estimado por eigengap."""
+            max_speakers: Optional[int] = None,
+            secs: Optional[np.ndarray] = None) -> np.ndarray:
+    """Rótulo (0..k-1) para cada embedding.
+
+    k vem do eigengap, limitado a MAX_SPEAKERS_AUTO (ou ao max_speakers, se
+    menor). min/max são limites; só são exatos quando iguais. Depois do
+    agrupamento, `refine` funde vozes duplicadas e absorve clusters ínfimos.
+    `secs`: tempo de fala de cada embedding (para o critério de absorção).
+    """
     n = len(emb)
+    # sem tempo de fala informado, a absorção fica desligada (absorve só com dados)
+    absorb = 0.0 if secs is None else ABSORB_SECONDS
+    secs = np.zeros(n) if secs is None else np.asarray(secs, dtype=float)
     lo = max(1, min_speakers or 1)
-    hi = max(lo, max_speakers or 10)
+    hi = max(lo, max_speakers or MAX_SPEAKERS_AUTO)
     hi = min(hi, n)
     lo = min(lo, hi)
     if n <= 1 or hi == 1:
         return np.zeros(n, dtype=int)
+    labels = _cluster_raw(emb, lo, hi)
+    return refine(labels, emb, secs, lo=lo, absorb_secs=absorb)
+
+
+def _cluster_raw(emb: np.ndarray, lo: int, hi: int) -> np.ndarray:
+    n = len(emb)
 
     aff = _affinity(emb)
     deg = aff.sum(1)
@@ -237,7 +319,8 @@ def scan_voices(audio: np.ndarray, extractor: EmbeddingExtractor,
         return VoiceScan(0, {}, {})
 
     emb = np.stack([extractor.embed(audio[a:b]) for a, b in windows])
-    labels = cluster(emb, min_speakers, max_speakers)
+    secs = np.array([(b - a) / SAMPLE_RATE for a, b in windows])
+    labels = cluster(emb, min_speakers, max_speakers, secs)
     k = int(labels.max()) + 1
     centroids, seconds = {}, {}
     for j in range(k):
@@ -273,7 +356,8 @@ def diarize(audio: np.ndarray, words: Sequence[Word], extractor: EmbeddingExtrac
 
     emb = np.stack([_embed_span(extractor, audio, sentences[i].start, sentences[i].end)
                     for i in long_idx])
-    labels = cluster(emb, min_speakers, max_speakers)
+    secs = np.array([sentences[i].duration for i in long_idx])
+    labels = cluster(emb, min_speakers, max_speakers, secs)
     for i, lab in zip(long_idx, labels):
         sentences[i].speaker = int(lab)
 
@@ -282,6 +366,9 @@ def diarize(audio: np.ndarray, words: Sequence[Word], extractor: EmbeddingExtrac
     centroids /= np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-9
 
     # 5) frases curtas: falante mais parecido; empate -> mantém o anterior
+    # (antes disso, frase curta ensanduichada entre duas do mesmo falante
+    # herda esse falante; é o caso típico de um "é" ou "amém" no meio)
+    _smooth_short(sentences)
     prev = int(labels[0])
     for s in sentences:
         if s.speaker >= 0:
@@ -306,6 +393,18 @@ def diarize(audio: np.ndarray, words: Sequence[Word], extractor: EmbeddingExtrac
     for s in sentences:
         s.speaker = order[s.speaker]
     return sentences, {order[j]: centroids[j] for j in range(k) if j in order}
+
+
+def _smooth_short(sentences: list[Sentence]) -> None:
+    """Frase curta sem embedding, com o mesmo falante antes e depois, herda
+    esse falante. Só mexe nas frases ainda sem falante."""
+    for i, s in enumerate(sentences):
+        if s.speaker >= 0 or s.duration >= SHORT_SMOOTH_SECONDS:
+            continue
+        if 0 < i < len(sentences) - 1:
+            a, b = sentences[i - 1].speaker, sentences[i + 1].speaker
+            if a >= 0 and a == b:
+                s.speaker = a
 
 
 def speaker_label(idx: int) -> str:

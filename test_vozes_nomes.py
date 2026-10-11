@@ -246,3 +246,31 @@ def test_sugestao_por_voz_nao_reforca_a_memoria(cliente):
                     json={"speaker_names": {"Falante 1": "Fernando"}}).json()
     assert r["vozes_aprendidas"] == ["Fernando"]
     assert [(p["nome"], p["reunioes"]) for p in vozes.list_people()] == [("Fernando", 2)]
+
+
+# --------------------------------------------------------------------------
+# Palavras comuns e acento (regressão do "Então" sugerido 13×)
+# --------------------------------------------------------------------------
+def test_entao_com_acento_nunca_vira_nome():
+    segs = [Segment(0, 3, "A", "Então, Fernando, vamos lá."),
+            Segment(4, 6, "B", "Sim, então fechou."),
+            Segment(7, 9, "A", "Então, Fernando, a gente começa.")]
+    nomes = [v[0] for v in infer(segs).values()]
+    assert "Então" not in nomes
+    assert "Fernando" in nomes                  # o nome próprio continua valendo
+
+
+def test_como_nos_e_jeova_nao_viram_nome():
+    segs = [Segment(0, 3, "A", "Como você está?"),
+            Segment(4, 6, "B", "Nós vamos, Jeová ajuda."),
+            Segment(7, 9, "A", "Jeová é fiel.")]
+    nomes = [v[0] for v in infer(segs).values()]
+    assert not {"Como", "Nós", "Jeová"} & set(nomes)
+
+
+def test_palavra_minuscula_no_meio_da_frase_nao_e_nome():
+    from app.nomes import _proper_nouns
+
+    segs = [Segment(0, 3, "A", "Vamos lá. Ele disse que Marcos vai. Marcos é o nome."),
+            Segment(4, 6, "B", "e assim marcos resolveu isso.")]
+    assert "Marcos" not in _proper_nouns(segs)

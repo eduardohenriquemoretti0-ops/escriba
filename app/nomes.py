@@ -56,14 +56,48 @@ def _fold(text: str) -> str:
                    if unicodedata.category(c) != "Mn")
 
 
+# A stoplist é guardada JÁ normalizada. Antes ela tinha "então" com acento
+# e a consulta usava _fold (sem acento): "Então" nunca era barrado e virou
+# sugestão de nome (13 falas no salão).
+_STOP_FOLD = {_fold(w) for w in _STOP}
+# Palavras comuns que aparecem com maiúscula no começo de fala ou logo depois
+# de vírgula ("Como vai", "Nós vamos"). Não são nomes de pessoa.
+# Nomes sagrados e títulos que o Whisper escreve com maiúscula: não são pessoas
+# da reunião ("Jeová" virou sugestão de falante no salão).
+_SAGRADOS = {_fold(w) for w in ("jeová", "jeova", "jesus", "cristo", "satanás",
+                                "satanas", "espírito", "espirito")}
+_COMUNS = {_fold(w) for w in (
+    "como", "nós", "nos", "aqui", "agora", "depois", "também", "mas", "porque",
+    "quando", "onde", "pra", "para", "uma", "uns", "isso", "esse", "essa", "aí",
+    "vamos", "vou", "né", "daí", "assim", "então", "entao", "cada", "todo",
+    "toda", "todos", "todas", "outro", "outra", "nada", "algo", "hoje", "ontem",
+)}
+
+
+def _nao_e_nome(palavra: str) -> bool:
+    """Palavra que nunca é nome de pessoa (stoplist, comuns, sagrados)."""
+    k = _fold(palavra)
+    return k in _STOP_FOLD or k in _COMUNS or k in _SAGRADOS
+
+
 def _proper_nouns(segments: Iterable[Segment]) -> set[str]:
     """Palavras que aparecem com maiúscula NO MEIO da frase (não por serem
-    a primeira palavra) — sinal de nome próprio."""
+    a primeira palavra) — sinal de nome próprio.
+
+    Heurística extra: se a mesma palavra aparece em minúscula no meio de
+    alguma frase da transcrição ("... e então vamos"), não é nome, mesmo que
+    o Whisper a tenha escrito com maiúscula em outro trecho.
+    """
     seen: dict[str, int] = defaultdict(int)
+    minusculas: set[str] = set()
     for seg in segments:
         for m in re.finditer(rf"(?<=[a-záâãàéêíóôõúç,]\s)({_NAME})\b", seg.text):
             seen[m.group(1)] += 1
-    return {w for w, n in seen.items() if n >= 1 and _fold(w) not in _STOP}
+        for m in re.finditer(r"(?<=[a-záâãàéêíóôõúç,]\s)([a-záâãàéêíóôõúç]{2,})\b",
+                             seg.text):
+            minusculas.add(_fold(m.group(1)))
+    return {w for w, n in seen.items()
+            if n >= 1 and not _nao_e_nome(w) and _fold(w) not in minusculas}
 
 
 FUZZY_MIN = 0.75   # "Rosilene" ~ "Rosilaine" = 0,82
@@ -118,7 +152,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
 
     for i, seg in enumerate(segs):
         for m in [*_INTRO.finditer(seg.text), *_INTRO_AFTER.finditer(seg.text)]:
-            if _fold(m.group(1)) in _STOP:
+            if _nao_e_nome(m.group(1)):
                 continue
             # quem se apresenta vale mesmo sem o nome ter aparecido antes
             name = _canonical(m.group(1), known, trusted) or m.group(1)
@@ -128,7 +162,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
 
         for m in _VOCATIVE.finditer(seg.text):
             word = m.group(1)
-            if _fold(word) in _STOP:
+            if _nao_e_nome(word):
                 continue
             if _QUOTE.search(seg.text[:m.start()]):
                 continue                             # está citando outra pessoa

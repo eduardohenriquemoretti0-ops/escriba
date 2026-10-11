@@ -12,7 +12,7 @@ speaker_labels) numa máquina sem GPU:
                                      janela de 30 s, não só na primeira)
   speaker_labels                     diarize.py (embedding de voz por frase +
                                      agrupamento espectral)
-  speakers_expected / speaker_options mín./máx. de falantes (padrão 1–10)
+  speakers_expected / speaker_options mín./máx. de falantes (estimativa 1–12)
   utterances                         frases do mesmo falante unidas em blocos
   filtro de silêncio/ruído           VAD Silero + limiares anti-alucinação
 
@@ -125,6 +125,50 @@ def _hotwords(vocabulary: Optional[list[str]], language: Optional[str]) -> Optio
     return text[:400] or None
 
 
+LACO_JANELA_SECONDS = 60.0
+LACO_MIN_PALAVRAS = 4
+LACO_MAX_REPETICOES = 2
+
+
+class _DetectorDeLaco:
+    """Descarta o trecho repetido de novo pelo Whisper (cântico, ruído).
+
+    Frase com 4 palavras ou mais que já apareceu 2 vezes nos últimos 60 s é
+    tratada como alucinação de laço, e a 3ª ocorrência sai da transcrição.
+    Cânticos viram "a gente tem que ser mais um arrasto" repetido; a fala
+    real quase nunca repete a mesma frase longa em tão pouco tempo.
+    """
+
+    def __init__(self) -> None:
+        self._vistas: list[tuple[float, str]] = []
+
+    def repetido(self, texto: str, fim: float) -> bool:
+        chave = " ".join(_NORM.sub("", texto.casefold()).split())
+        if len(chave.split()) < LACO_MIN_PALAVRAS:
+            return False
+        self._vistas = [(t, c) for t, c in self._vistas if fim - t <= LACO_JANELA_SECONDS]
+        if sum(1 for _, c in self._vistas if c == chave) >= LACO_MAX_REPETICOES:
+            return True
+        self._vistas.append((fim, chave))
+        return False
+
+
+def _limites(min_speakers: Optional[int],
+             max_speakers: Optional[int]) -> tuple[Optional[int], Optional[int]]:
+    """Limites informados pelo usuário viram dica para o agrupamento.
+
+    Acima de diarize.MAX_SPEAKERS_AUTO não são usados: um "20 e 20" digitado
+    na tela forçava o agrupamento a 20 vozes numa reunião de 1 pessoa, e o
+    eigengap não tem como corrigir isso.
+    """
+    teto = diarize.MAX_SPEAKERS_AUTO
+    lo = min_speakers if min_speakers and 1 <= min_speakers <= teto else None
+    hi = max_speakers if max_speakers and 1 <= max_speakers <= teto else None
+    if lo and hi and lo > hi:
+        lo = hi = None
+    return lo, hi
+
+
 def _load_audio(path: Path):
     import numpy as np
     from faster_whisper.audio import decode_audio
@@ -165,6 +209,7 @@ class LocalEngine:
         # ---- Fase 1: reconhecimento de vozes (antes de transcrever) --------
         progress("Fase 1/3 · Reconhecendo as vozes")
         extractor = _extractor()
+        min_speakers, max_speakers = _limites(min_speakers, max_speakers)
         scan = diarize.scan_voices(audio, extractor, min_speakers, max_speakers)
         known = vozes.match({j: c for j, c in scan.centroids.items()})
         names = [known[j][0] for j in sorted(known)]
@@ -183,10 +228,6 @@ class LocalEngine:
 
         # Os nomes reconhecidos pela voz também ajudam o Whisper na grafia
         vocabulary = list(dict.fromkeys([*(vocabulary or []), *names]))
-        # A separação das falas segue o nº de vozes da fase 1 (consistência)
-        if scan.count:
-            min_speakers = max_speakers = scan.count
-
         # ---- Fase 2: transcrição -----------------------------------------
         progress(f"Fase 2/3 · Carregando modelo de transcrição ({config.WHISPER_MODEL})")
         model = _whisper_model()
@@ -210,8 +251,9 @@ class LocalEngine:
         words: list[diarize.Word] = []
         total = info.duration or 1.0
         last_pct = -1
+        laco = _DetectorDeLaco()
         for seg in segments_iter:
-            if _is_hallucination(seg.text):
+            if _is_hallucination(seg.text) or laco.repetido(seg.text, seg.end):
                 continue
             for w in seg.words or []:
                 words.append(diarize.Word(w.start, w.end, w.word))
