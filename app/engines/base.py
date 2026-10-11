@@ -12,6 +12,11 @@ from typing import Callable, Optional, Protocol
 
 ProgressCB = Callable[[str], None]  # recebe o nome da fase atual
 
+# Trecho de cântico/coro: não é a fala de uma pessoa. Sai com esse rótulo
+# reservado (não conta como falante) e com o texto abaixo.
+CORO_LABEL = "CORO"
+CORO_TEXT = "(em coro, todos juntos, congregação cantando)"
+
 
 @dataclass
 class Segment:

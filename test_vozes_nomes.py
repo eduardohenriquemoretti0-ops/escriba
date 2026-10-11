@@ -274,3 +274,66 @@ def test_palavra_minuscula_no_meio_da_frase_nao_e_nome():
     segs = [Segment(0, 3, "A", "Vamos lá. Ele disse que Marcos vai. Marcos é o nome."),
             Segment(4, 6, "B", "e assim marcos resolveu isso.")]
     assert "Marcos" not in _proper_nouns(segs)
+
+
+# --------------------------------------------------------------------------
+# Reunião com vários falantes: chamada, agradecimento e dirigente
+# --------------------------------------------------------------------------
+from app.nomes import dirigente_de, _unifica  # noqa: E402
+
+
+def _reuniao():
+    """D é o dirigente: chama antes do comentário e agradece depois."""
+    return [
+        _seg(0, "D", "Vamos começar. Quem comenta primeiro? Sim, irmão Fulano."),
+        _seg(3, "A", "Bom dia a todos. Eu acho que a gente deve orar."),
+        _seg(9, "D", "Obrigado, irmão Fulano. Irmã Beltrana, por favor."),
+        _seg(12, "B", "Olá, eu acho que Jeová se importa."),
+        _seg(18, "D", "Muito bem, irmã Beltrana. Vamos ao próximo."),
+        _seg(25, "C", "Pois não, é isso mesmo, a gente precisa de paciência."),
+        _seg(31, "D", "Obrigado, irmão Ciclano."),
+    ]
+
+
+def test_chamada_vai_para_quem_responde_logo_depois():
+    # "Sim, irmão Fulano." -> quem fala a seguir (A) é o Fulano
+    s = _reuniao()
+    nomes = infer(s)
+    assert nomes["A"][0] == "Fulano"
+    assert nomes["A"][2] == "chamado pelo dirigente 1×, agradecido 1×"
+
+
+def test_agradecimento_vai_para_quem_acabou_de_falar():
+    # "Obrigado, irmão Fulano." (t=9) -> o falante anterior (A) é o Fulano;
+    # "Muito bem, irmã Beltrana." (t=18) -> o anterior (B) é a Beltrana
+    s = _reuniao()
+    nomes = infer(s)
+    assert nomes["B"][0] == "Beltrana"
+    # um único agradecimento já vale o mínimo (peso posicional 2): sugere
+    assert nomes["C"][0] == "Ciclano" and nomes["C"][2] == "agradecido 1×"
+
+
+def test_dirigente_nao_recebe_o_nome_que_ele_pronuncia():
+    s = _reuniao()
+    assert dirigente_de(s) == "D"
+    assert "D" not in infer(s)
+
+
+def test_nome_composto_e_titulo_fora_do_nome():
+    s = [_seg(0, "D", "Sim, irmão José Eduardo."), _seg(4, "A", "Pois é, bom dia."),
+         _seg(8, "D", "Obrigado, irmão José Eduardo."), _seg(12, "B", "Amém."),
+         _seg(16, "D", "Obrigado, irmão José Eduardo.")]
+    nomes = [v[0] for v in infer(s).values()]
+    assert "José Eduardo" in nomes
+    assert "irmão" not in " ".join(nomes).casefold()
+
+
+def test_grafias_parecidas_viram_uma():
+    assert _unifica(["Admir", "Ademir", "Ademir"]) == {"Admir": "Ademir", "Ademir": "Ademir"}
+    assert _unifica(["Ana", "Bia"]) == {"Ana": "Ana", "Bia": "Bia"}
+
+
+def test_fala_citada_de_chamada_nao_conta():
+    # "ele disse: Sim, irmão Fulano" é citação, não chamada de agora
+    s = [_seg(0, "D", "Ele disse: sim, irmão Fulano, vem aqui."), _seg(4, "A", "Tá bom.")]
+    assert "A" not in infer(s)

@@ -160,3 +160,62 @@ def test_laco_de_cantico_tira_a_terceira_repeticao():
     assert [d.repetido("Amém.", t) for t in (30.0, 31.0, 32.0)] == [False, False, False]
     # depois de 60 s a frase volta a valer
     assert d.repetido(frase, 200.0) is False
+
+
+# --------------------------------------------------------------------------
+# Cânticos: "em coro" fora da separação de falantes
+# --------------------------------------------------------------------------
+class _SegFake:
+    def __init__(self, text, end, avg_logprob=-0.3, compression_ratio=1.1):
+        self.text, self.end = text, end
+        self.avg_logprob, self.compression_ratio = avg_logprob, compression_ratio
+
+
+def test_lacuna_com_som_alto_sem_fala_vira_coro():
+    from app.engines.local_engine import _lacunas_de_coro
+
+    sr = 16000
+    rng = np.random.default_rng(0)
+    # 0–20 s: fala (silêncio aqui é 0); 20–50 s: som alto sem palavras (cântico);
+    # 50–80 s: silêncio baixo (pausa); 80–90 s: fala
+    audio = np.zeros(90 * sr, dtype=np.float32)
+    audio[20 * sr:50 * sr] = 0.1 * rng.standard_normal(30 * sr)     # ~ -20 dBFS
+    audio[50 * sr:80 * sr] = 0.001 * rng.standard_normal(30 * sr)   # ~ -60 dBFS
+    words = [Word(0.0, 19.0, " a"), Word(80.0, 89.0, " b")]
+    (a, b), = _lacunas_de_coro(audio, words)
+    assert 20.0 <= a <= 25.0 and 45.0 <= b <= 50.0   # tolerância de uma janela de 5 s
+
+
+def test_lacuna_silenciosa_nao_e_coro():
+    from app.engines.local_engine import _lacunas_de_coro
+
+    sr = 16000
+    audio = np.zeros(60 * sr, dtype=np.float32)
+    words = [Word(0.0, 5.0, " a"), Word(40.0, 45.0, " b")]
+    assert _lacunas_de_coro(audio, words) == []
+
+
+def test_coro_por_laco_mesmo_com_confianca_normal():
+    from app.engines.local_engine import _DetectorDeLaco, _e_coro
+
+    lac = _DetectorDeLaco()
+    frase = "A gente tem que ser mais um arrasto."
+    res = [_e_coro(_SegFake(frase, t), lac) for t in (5, 10, 15)]
+    assert res == [False, False, True]
+
+
+def test_trechos_de_coro_proximos_viram_um_so():
+    from app.engines.local_engine import _agrupa_coro
+
+    assert _agrupa_coro([(10, 20), (25, 40), (200, 210)]) == [(10, 40), (200, 210)]
+
+
+def test_coro_nao_consome_numero_de_falante():
+    from app.engines.base import CORO_LABEL, Segment
+    from app.exports import speaker_map
+
+    segs = [Segment(0, 2, CORO_LABEL, "(em coro)"), Segment(3, 5, "A", "Oi."),
+            Segment(6, 8, CORO_LABEL, "(em coro)"), Segment(9, 11, "B", "Tchau.")]
+    m = speaker_map(segs)
+    assert m[CORO_LABEL] == "Em coro"
+    assert m["A"] == "Falante 1" and m["B"] == "Falante 2"

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from typing import Iterable, Optional
 
@@ -121,6 +121,106 @@ def _canonical(word: str, known: dict[str, str],
     return known.get(key)
 
 
+# --------------------------------------------------------------------------
+# Reunião com vários falantes: a pessoa é nomeada pela POSIÇÃO no tempo.
+# Ex. (salão): o dirigente chama antes do comentário ("Sim, irmão Fulano"),
+# e agradece depois ("Obrigado, irmão Fulano"). Quem é chamado responde logo
+# depois da chamada; quem é agradecido acabou de falar antes do agradecimento.
+# --------------------------------------------------------------------------
+CHAMADA_WINDOW_SECONDS = 15.0       # chamado responde até isso depois da chamada
+AGRADECIMENTO_WINDOW_SECONDS = 60.0  # comentário agradecido até isso antes
+PESO_POSICIONAL = 2.0               # voto de chamada/agradecimento
+UNIFICA_MIN = 0.8                   # "Admir" ~ "Ademir" (0,91)
+# "irmão", "irmã" etc. são título, não nome: ficam de fora da captura.
+_TITULO = r"(?i:irm(?:ão|ã|aos|ãos|ãs|as|ao|a))"
+_NC = rf"{_NAME}(?:\s+{_NAME})?"   # nome, ou nome composto ("José Eduardo")
+# "Sim, irmão Fulano" / "Pois não, irmã Fulana"
+_CHAMADA_TITULO = re.compile(
+    rf"(?:^|[.!?…,]\s+)(?i:sim|pois não|pois nao|pode|certo|ok)\s*,\s*{_TITULO}\s+({_NC})\b")
+# "irmão Fulano, por favor"
+_CHAMADA_TITULO_FINAL = re.compile(
+    rf"(?:^|[.!?…]\s+){_TITULO}\s+({_NC})\s*,?\s*(?i:por favor)\b")
+# "Fulano, por favor"
+_CHAMADA_NOME = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*,\s*(?i:por favor)\b")
+# "Obrigado, irmão Fulano" / "Muito bem, Fulana" / "obrigado irmão Admir"
+_AGRADECIMENTO = re.compile(
+    rf"(?i:muito obrigad[oa]|obrigad[oa]|muito bem|isso mesmo)\s*,?\s*"
+    rf"(?:{_TITULO}\s+)?({_NC})\b")
+
+
+def _unifica(nomes: list[str]) -> dict[str, str]:
+    """Grafias parecidas viram uma só (a mais frequente): "Admir" -> "Ademir"."""
+    freq = Counter(nomes)
+    canon: list[str] = []
+    mapa: dict[str, str] = {}
+    # empate de frequência: vale a grafia que aparece primeiro na conversa
+    for n in sorted(freq, key=lambda x: -freq[x]):
+        achado = next((c for c in canon if SequenceMatcher(
+            None, _fold(n), _fold(c)).ratio() >= UNIFICA_MIN), None)
+        if achado is None:
+            canon.append(n)
+            mapa[n] = n
+        else:
+            mapa[n] = achado
+    return mapa
+
+
+def _resumo_motivos(motivos: list[str]) -> str:
+    """["chamado pelo dirigente", "agradecido", "agradecido"] ->
+    "chamado pelo dirigente 1×, agradecido 2×" (apresentação vai sem contagem)."""
+    if "apresentou-se" in motivos:
+        return "apresentou-se"
+    cont = Counter(motivos)
+    return ", ".join(f"{m} {n}×" for m, n in cont.items())
+
+
+def _eventos_posicionais(segs: list[Segment]) -> list[tuple[str, int, str]]:
+    """(tipo, índice da fala, nome cru) para chamadas e agradecimentos."""
+    eventos: list[tuple[str, int, str]] = []
+    for i, seg in enumerate(segs):
+        for rx in (_CHAMADA_TITULO, _CHAMADA_TITULO_FINAL, _CHAMADA_NOME):
+            for m in rx.finditer(seg.text):
+                if not _nao_e_nome(m.group(1).split()[0]):
+                    eventos.append(("chamada", i, m.group(1)))
+        for m in _AGRADECIMENTO.finditer(seg.text):
+            if not _nao_e_nome(m.group(1).split()[0]):
+                eventos.append(("agradecimento", i, m.group(1)))
+    return eventos
+
+
+def _alvo_chamada(segs: list[Segment], i: int) -> Optional[str]:
+    """Quem responde à chamada da fala i: o próximo falante diferente, se
+    começar até CHAMADA_WINDOW_SECONDS depois."""
+    me = segs[i].speaker
+    for j in range(i + 1, len(segs)):
+        if segs[j].start - segs[i].end > CHAMADA_WINDOW_SECONDS:
+            return None
+        if segs[j].speaker != me:
+            return segs[j].speaker
+    return None
+
+
+def _alvo_agradecimento(segs: list[Segment], i: int) -> Optional[str]:
+    """Quem é agradecido na fala i: o falante diferente mais recente antes,
+    se terminou até AGRADECIMENTO_WINDOW_SECONDS antes."""
+    me = segs[i].speaker
+    for j in range(i - 1, -1, -1):
+        if segs[i].start - segs[j].end > AGRADECIMENTO_WINDOW_SECONDS:
+            return None
+        if segs[j].speaker != me:
+            return segs[j].speaker
+    return None
+
+
+def dirigente_de(segs: list[Segment]) -> Optional[str]:
+    """Quem mais chama e agradece (pelo menos 2 vezes): o dirigente da reunião."""
+    cont = Counter(segs[i].speaker for _, i, _ in _eventos_posicionais(segs))
+    if not cont:
+        return None
+    spk, n = cont.most_common(1)[0]
+    return spk if n >= 2 else None
+
+
 def infer(segments: list[Segment], candidates: Iterable[str] = (),
           exclude: Optional[set] = None) -> dict[str, tuple[str, float, str]]:
     """{rótulo_cru: (nome, votos, motivo)} para os falantes identificados.
@@ -128,6 +228,10 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     `candidates`: nomes já conhecidos (participantes informados, vozes da
     memória). Além deles, aceita nomes próprios que aparecem na conversa.
     `exclude`: rótulos que já têm nome (pela voz) e não devem ser sugeridos.
+
+    Com mais de 2 falantes, o nome vem da posição no tempo (chamada ->
+    próximo falante; agradecimento -> falante anterior). Com 2, vale também
+    o vocativo "ao interlocutor", como antes.
     """
     segs = [s for s in segments if s.text.strip()]
     speakers = list(dict.fromkeys(s.speaker for s in segs))
@@ -150,7 +254,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     votes: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     reasons: dict[tuple[str, str], list[str]] = defaultdict(list)
 
-    for i, seg in enumerate(segs):
+    for seg in segs:
         for m in [*_INTRO.finditer(seg.text), *_INTRO_AFTER.finditer(seg.text)]:
             if _nao_e_nome(m.group(1)):
                 continue
@@ -160,23 +264,54 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
                 votes[seg.speaker][name] += 3.0
                 reasons[(seg.speaker, name)].append("apresentou-se")
 
-        for m in _VOCATIVE.finditer(seg.text):
-            word = m.group(1)
-            if _nao_e_nome(word):
-                continue
-            if _QUOTE.search(seg.text[:m.start()]):
-                continue                             # está citando outra pessoa
-            name = _canonical(word, known, trusted)
-            if not name:
-                continue
-            # Quem chama provavelmente não é o chamado. Peso menor que o voto
-            # a favor: falas curtas ("Valeu, Fernando.") às vezes caem no
-            # falante errado, e o erro não pode anular as pistas boas.
-            votes[seg.speaker][name] -= 0.5
-            target = _addressee(segs, i)
-            if target is not None:
-                votes[target][name] += 1.0
-                reasons[(target, name)].append("foi chamado pelo nome")
+    # --- chamadas e agradecimentos (posição no tempo) -----------------------
+    eventos = _eventos_posicionais(segs)
+    crus = [n for _, _, n in eventos]
+    mapa = _unifica(crus)
+    nomes_evento = []
+    for tipo, i, cru in eventos:
+        nome = _canonical(mapa[cru], known, trusted) or mapa[cru]
+        nomes_evento.append((tipo, i, nome))
+    dirigente = dirigente_de(segs)
+    # quem pronuncia o nome numa chamada/agradecimento não pode receber esse nome
+    pronunciou: dict[str, set] = defaultdict(set)
+    for tipo, i, nome in nomes_evento:
+        pronunciou[nome].add(segs[i].speaker)
+    for tipo, i, nome in nomes_evento:
+        quem = segs[i].speaker
+        alvo = (_alvo_chamada(segs, i) if tipo == "chamada"
+                else _alvo_agradecimento(segs, i))
+        votes[quem][nome] -= 0.5                 # quem chama/agradece não é o chamado
+        if alvo is None or alvo in pronunciou[nome]:
+            continue
+        votes[alvo][nome] += PESO_POSICIONAL
+        if tipo == "chamada":
+            motivo = ("chamado pelo dirigente" if quem == dirigente
+                      else "chamado pelo nome")
+        else:
+            motivo = "agradecido"
+        reasons[(alvo, nome)].append(motivo)
+
+    # --- vocativo "ao interlocutor": só em conversa de 2 pessoas ------------
+    if len(speakers) <= 2:
+        for i, seg in enumerate(segs):
+            for m in _VOCATIVE.finditer(seg.text):
+                word = m.group(1)
+                if _nao_e_nome(word):
+                    continue
+                if _QUOTE.search(seg.text[:m.start()]):
+                    continue                     # está citando outra pessoa
+                name = _canonical(word, known, trusted)
+                if not name:
+                    continue
+                # Quem chama provavelmente não é o chamado. Peso menor que o voto
+                # a favor: falas curtas ("Valeu, Fernando.") às vezes caem no
+                # falante errado, e o erro não pode anular as pistas boas.
+                votes[seg.speaker][name] -= 0.5
+                target = _addressee(segs, i)
+                if target is not None:
+                    votes[target][name] += 1.0
+                    reasons[(target, name)].append("foi chamado pelo nome")
 
     # atribuição: maior voto primeiro, 1 nome por falante e vice-versa
     pairs = sorted(((v, spk, name) for spk, d in votes.items() for name, v in d.items()),
@@ -191,10 +326,7 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
         others = [votes[o][name] for o in speakers if o != spk]
         if others and v - max(others) < 1.0:       # sem folga: ambíguo
             continue
-        motivo = reasons[(spk, name)]
-        resumo = ("apresentou-se" if "apresentou-se" in motivo
-                  else f"chamado pelo nome {motivo.count('foi chamado pelo nome')}×")
-        result[spk] = (name, v, resumo)
+        result[spk] = (name, v, _resumo_motivos(reasons[(spk, name)]))
         used_names.add(name)
     return result
 

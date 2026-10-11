@@ -1159,12 +1159,15 @@ function renderRevisao(){
   $("#listaPart").innerHTML = (d.participants || [])
     .map(p => `<option value="${esc(p)}">`).join("");
 
+  const fmtMin = (sec) => { const m = Math.floor((sec || 0) / 60), r = Math.round((sec || 0) % 60);
+    return m ? `${m} min ${r} s` : `${r} s`; };
   $("#revFalantes").innerHTML = (d.speakers || []).map((s, i) => `
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
-        <span class="qtd">${s.falas} falas · ${s.palavras} palavras</span></div>
+        <span class="qtd">${fmtMin(s.segundos)} de fala · ${s.blocos ?? s.falas} blocos · ${s.palavras} palavras</span></div>
       ${s.auto ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
         <button type="button" class="usar" data-usar="${esc(s.label)}" data-nome="${esc(s.auto.nome)}">Usar</button></span>` : ""}
+      ${s.primeira ? `<small class="primeira">Primeira fala: <q>${esc(s.primeira)}</q></small>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}
       <input type="text" list="listaPart" maxlength="80" data-label="${esc(s.label)}"
         value="${esc(s.nome || "")}" placeholder="Quem é? (opcional)"

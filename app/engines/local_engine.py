@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import re
 import threading
+
+import numpy as np
 from pathlib import Path
 from typing import Optional
 
 from .. import config
 from . import diarize
-from .base import ProgressCB, Segment
+from .base import CORO_LABEL, CORO_TEXT, ProgressCB, Segment
 
 _lock = threading.Lock()
 
@@ -153,6 +155,74 @@ class _DetectorDeLaco:
         return False
 
 
+# Cântico: o Whisper quase não escreve nada enquanto a congregação canta (o VAD
+# trata como não-fala). Medido no salão: silêncio de fala de 15 s ou mais com
+# som acima de -20 dBFS = cântico; pausa normal fica em -20 a -32 dBFS.
+CORO_GAP_SECONDS = 15.0
+CORO_MIN_DBFS = -20.0
+
+
+def _e_coro(seg, laco: "_DetectorDeLaco") -> bool:
+    """Trecho de texto em laço (o Whisper repetiu a mesma frase): não é fala."""
+    return laco.repetido(seg.text, seg.end)
+
+
+CORO_WINDOW_SECONDS = 5.0
+
+
+def _som_alto(audio: np.ndarray, a: float, b: float) -> bool:
+    sr = diarize.SAMPLE_RATE
+    x = audio[int(a * sr):int(b * sr)].astype(np.float64)
+    if x.size == 0:
+        return False
+    return 20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-9) >= CORO_MIN_DBFS
+
+
+def _lacunas_de_coro(audio: np.ndarray, words: list) -> list[tuple[float, float]]:
+    """Trechos sem nenhuma palavra transcrita com som alto por CORO_GAP_SECONDS
+    ou mais: cântico da congregação, marcado "em coro".
+
+    Dentro de cada intervalo entre palavras, o som é medido em janelas de
+    5 s; só uma sequência contínua de janelas altas com 15 s ou mais conta.
+    Assim um cântico seguido de silêncio não some na média.
+    """
+    fim = len(audio) / diarize.SAMPLE_RATE
+    trechos: list[tuple[float, float]] = []
+    cursor = 0.0
+    for w in sorted(words, key=lambda w: w.start) + [diarize.Word(fim, fim, "")]:
+        if w.start - cursor >= CORO_GAP_SECONDS:
+            corrida: list[tuple[float, float]] = []   # janelas altas seguidas
+            t = cursor
+            while t < w.start:
+                t2 = min(t + CORO_WINDOW_SECONDS, w.start)
+                if _som_alto(audio, t, t2):
+                    corrida.append((t, t2))
+                else:
+                    _fecha_corrida(corrida, trechos)
+                    corrida = []
+                t = t2
+            _fecha_corrida(corrida, trechos)
+        cursor = max(cursor, w.end)
+    return trechos
+
+
+def _fecha_corrida(corrida: list[tuple[float, float]],
+                   trechos: list[tuple[float, float]]) -> None:
+    if corrida and corrida[-1][1] - corrida[0][0] >= CORO_GAP_SECONDS:
+        trechos.append((corrida[0][0], corrida[-1][1]))
+
+
+def _agrupa_coro(trechos: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Junta trechos de coro separados por até UTTERANCE_MAX_GAP segundos."""
+    out: list[list[float]] = []
+    for a, b in sorted(trechos):
+        if out and a - out[-1][1] <= UTTERANCE_MAX_GAP:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [(a, b) for a, b in out]
+
+
 def _limites(min_speakers: Optional[int],
              max_speakers: Optional[int]) -> tuple[Optional[int], Optional[int]]:
     """Limites informados pelo usuário viram dica para o agrupamento.
@@ -219,9 +289,9 @@ class LocalEngine:
                            for j in sorted(known)],
         }
         if scan.count == 1:
-            resumo = "1 voz (só uma pessoa falando)"
+            resumo = "1 voz detectada (só uma pessoa falando)"
         else:
-            resumo = f"{scan.count} vozes"
+            resumo = f"{scan.count} vozes detectadas"
         if names:
             resumo += " · reconhecida(s): " + ", ".join(names)
         progress(f"Fase 1/3 · {resumo}")
@@ -249,11 +319,15 @@ class LocalEngine:
         )
 
         words: list[diarize.Word] = []
+        coro: list[tuple[float, float]] = []      # trechos de cântico/coro
         total = info.duration or 1.0
         last_pct = -1
         laco = _DetectorDeLaco()
         for seg in segments_iter:
-            if _is_hallucination(seg.text) or laco.repetido(seg.text, seg.end):
+            if _is_hallucination(seg.text):
+                continue
+            if _e_coro(seg, laco):
+                coro.append((seg.start, seg.end))
                 continue
             for w in seg.words or []:
                 words.append(diarize.Word(w.start, w.end, w.word))
@@ -262,8 +336,9 @@ class LocalEngine:
                 last_pct = pct
                 progress(f"Fase 2/3 · Transcrevendo — {pct}%")
 
-        if not words:
+        if not words and not coro:
             return []
+        coro.extend(_lacunas_de_coro(audio, words))
 
         progress("Fase 2/3 · Separando as falas por pessoa")
         sentences, centroids = diarize.diarize(
@@ -289,4 +364,8 @@ class LocalEngine:
                 out[-1].end = s.end
             else:
                 out.append(Segment(start=s.start, end=s.end, speaker=label, text=s.text))
+        # Cânticos: um bloco "em coro" por trecho, fora da separação de falantes
+        for a, b in _agrupa_coro(coro):
+            out.append(Segment(start=a, end=b, speaker=CORO_LABEL, text=CORO_TEXT))
+        out.sort(key=lambda sg: sg.start)
         return out

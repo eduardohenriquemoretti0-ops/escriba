@@ -16,7 +16,7 @@ from dataclasses import asdict
 from difflib import SequenceMatcher
 
 from . import exports, jobs
-from .engines.base import Segment
+from .engines.base import CORO_LABEL, Segment
 
 SEG_FILE = "segmentos.json"
 
@@ -170,16 +170,23 @@ def speakers_overview(job: jobs.Job) -> list[dict]:
     default = exports.speaker_map(raw_segs)
     rows: dict[str, dict] = {}
     for seg in raw_segs:
+        if seg.speaker == CORO_LABEL:          # trecho de coro não é uma pessoa
+            continue
         label = default[seg.speaker]
         row = rows.setdefault(label, {
             "label": label,
             "nome": job.speaker_names.get(label, ""),
             "auto": job.nomes_auto.get(label),
             "falas": 0, "palavras": 0, "primeira_fala": seg.start,
-            "amostras": [],
+            "segundos": 0.0, "blocos": 0, "primeira": "", "amostras": [],
         })
         row["falas"] += 1
+        row["blocos"] += 1
+        row["segundos"] += max(0.0, seg.end - seg.start)
         row["palavras"] += len(seg.text.split())
+        if not row["primeira"]:
+            txt = apply_corrections(seg.text, job.corrections)
+            row["primeira"] = txt if len(txt) <= 140 else txt[:137] + "…"
         if len(row["amostras"]) < 3 and len(seg.text.split()) >= 6:
             txt = apply_corrections(seg.text, job.corrections)
             row["amostras"].append(txt if len(txt) <= 140 else txt[:137] + "…")

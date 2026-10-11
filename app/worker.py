@@ -20,6 +20,7 @@ import logging
 
 from . import config, exports, jobs, media, nomes, review, vozes
 from .engines import get_engine, merge_segments
+from .engines.base import CORO_LABEL
 
 log = logging.getLogger("escriba.worker")
 _queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
@@ -198,6 +199,7 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
     nem `participants`: esses campos são o que o usuário confirma na revisão,
     e são a única fonte para a memória de vozes aprender. Um nome deduzido
     que vira "fato" aqui seria aprendido na próxima salva e se reforçaria."""
+    segments = [s for s in segments if s.speaker != CORO_LABEL]  # coro não é pessoa
     display = exports.speaker_map(segments)                  # "A" -> "Falante 1"
     by_voice = vozes.match({lab: v["vetor"] for lab, v in voices.items()})
     strong = {lab for lab, (_, sim) in by_voice.items() if sim >= vozes.MATCH_STRONG}
