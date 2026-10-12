@@ -47,6 +47,27 @@ CPU_THREADS = int(os.getenv("ESCRIBA_CPU_THREADS", str(os.cpu_count() or 4)))
 DIARIZATION_MODEL = os.getenv(
     "ESCRIBA_DIARIZATION_MODEL",
     str(MODELS_DIR / "diarizacao" / "nemo_en_titanet_small.onnx"))
+
+
+def _float_env(nome: str, padrao: float) -> float:
+    """Número do ambiente; valor inválido volta ao padrão (com aviso no stderr)."""
+    bruto = os.getenv(nome, "").strip().replace(",", ".")
+    if not bruto:
+        return padrao
+    try:
+        return float(bruto)
+    except ValueError:
+        print(f"Escriba: {nome}={bruto!r} inválido, usando {padrao}", file=sys.stderr)
+        return padrao
+
+
+# Trechos que o Whisper pulou (áudio baixo): retranscritos com ganho, só no
+# motor local. ESCRIBA_BURACOS=0 desliga. O teto é CPU-segundos por segundo de
+# áudio (0,75 = no máximo 45 min de CPU numa reunião de 1 h); medido: salão
+# 0,17, conversa de 2 pessoas 0,56.
+BURACOS_ATIVO = os.getenv("ESCRIBA_BURACOS", "1").strip().lower() not in (
+    "0", "false", "nao", "não", "off")
+BURACOS_TETO_CPU = max(0.0, _float_env("ESCRIBA_BURACOS_TETO_CPU", 0.75))
 # Termos que o Whisper deve preferir em toda reunião (empresas, produtos...)
 # separados por vírgula. Os participantes de cada reunião entram sozinhos.
 EXTRA_TERMS = [t.strip() for t in os.getenv("ESCRIBA_TERMOS", "").split(",") if t.strip()]
