@@ -342,3 +342,14 @@ def test_fala_citada_de_chamada_nao_conta():
     # "ele disse: Sim, irmão Fulano" é citação, não chamada de agora
     s = [_seg(0, "D", "Ele disse: sim, irmão Fulano, vem aqui."), _seg(4, "A", "Tá bom.")]
     assert "A" not in infer(s)
+
+
+def test_participante_vence_grafia_da_lista_na_conversa():
+    # 2026-10-12: "Fernando" cadastrado como grafia de "Fernando Croci" fazia o
+    # Fernando TopVigia (participante desta reunião) virar Fernando Croci
+    from app.irmaos import Entrada
+    lista = [Entrada("1", "Fernando Croci", grafias=("Fernando Cross", "Fernando"))]
+    segs = [_seg(0, "A", "Então fechou, Fernando."), _seg(4, "B", "Fechou."),
+            _seg(8, "A", "Valeu, Fernando."), _seg(12, "B", "Até mais.")]
+    nomes = infer(segs, ["Eduardo Moretti", "Fernando TopVigia"], irmaos=lista)
+    assert nomes["B"][0] == "Fernando TopVigia"

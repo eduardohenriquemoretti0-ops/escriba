@@ -98,7 +98,8 @@ def corrige_texto(text: str, job: jobs.Job, entradas=None) -> str:
     as correções da revisão. O cru (segmentos.json) não muda."""
     if entradas is None:
         entradas = irmaos.listar_seguro(log)
-    return apply_corrections(irmaos.corrige_texto(text, entradas), job.corrections)
+    return apply_corrections(
+        irmaos.corrige_texto(text, entradas, job.participants or ()), job.corrections)
 
 
 def segments_for(job: jobs.Job) -> list[Segment]:

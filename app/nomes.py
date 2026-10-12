@@ -130,6 +130,11 @@ def _resolve(word: str, known: dict[str, str], trusted: Optional[dict[str, str]]
     if entradas:
         achado = _irmaos.corrige(word, entradas)
         if achado.casou:
+            # Nome informado nesta reunião vence grafia/semelhança da lista:
+            # "Fernando" com o participante "Fernando TopVigia" não vira o
+            # "Fernando Croci" da lista só porque "Fernando" é grafia dele.
+            if achado.origem != "exato" and trusted and _fold(word) in trusted:
+                return trusted[_fold(word)]
             return achado.nome
     return _canonical(word, known, trusted)
 

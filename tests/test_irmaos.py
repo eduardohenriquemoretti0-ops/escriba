@@ -473,3 +473,12 @@ def test_transcricao_sai_com_grafia_corrigida_e_cru_intacto(tmp_path, monkeypatc
     assert "irmão Ademir Paulino" in job.path("transcricao.txt").read_text("utf-8")
     cru = json.loads(job.path("segmentos.json").read_text("utf-8"))
     assert cru[0]["text"] == "Bem-vindo, irmão Módemir Paulino."
+
+
+def test_participante_vence_grafia_da_lista_no_texto():
+    from app.irmaos import Entrada, corrige_texto
+    lista = [Entrada("1", "Fernando Croci", grafias=("Fernando Cross", "Fernando"))]
+    txt = "Valeu, Fernando. O irmão Fernando Cross comentou."
+    assert corrige_texto(txt, lista, ["Fernando TopVigia"]) == (
+        "Valeu, Fernando. O irmão Fernando Croci comentou.")
+    assert corrige_texto("Valeu, Fernando.", lista) == "Valeu, Fernando Croci."

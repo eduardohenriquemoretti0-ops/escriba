@@ -336,13 +336,21 @@ def mapa_grafias(entradas: Sequence[Entrada]) -> dict[str, str]:
     return {k: v for k, v in mapa.items() if k not in conflito}
 
 
-def corrige_texto(texto: str, entradas: Sequence[Entrada]) -> str:
+def corrige_texto(texto: str, entradas: Sequence[Entrada],
+                  preservar: Iterable[str] = ()) -> str:
     """Troca no texto a palavra que É uma grafia cadastrada pelo nome da lista.
 
     Só palavra com maiúscula ("Módemir" -> "Ademir"); caixa e acento não
     contam. Palavra parecida que não está cadastrada fica como está. Grafia
-    de mais de uma palavra é trocada pela frase inteira."""
+    de mais de uma palavra é trocada pela frase inteira. `preservar`: nomes
+    informados na reunião (participantes); a palavra igual ao nome ou ao 1º
+    nome de um deles não é trocada ("Fernando" com o participante "Fernando
+    TopVigia" não vira o "Fernando Croci" da lista)."""
     mapa = mapa_grafias(entradas)
+    for nome in preservar:
+        partes = nome.split()
+        for k in (fold(nome.strip()), fold(partes[0]) if partes else ""):
+            mapa.pop(k, None)
     if not mapa or not texto:
         return texto
     for k, nome in mapa.items():
