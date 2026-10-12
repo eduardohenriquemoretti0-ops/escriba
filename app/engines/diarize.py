@@ -10,7 +10,8 @@ Segue a mesma receita dos serviços pagos (AssemblyAI e afins):
   4. Agrupamento espectral dos embeddings. O número de falantes é estimado
      pelo maior "salto" de autovalores (eigengap), sempre dentro do intervalo
      mínimo/máximo informado — o equivalente ao `speakers_expected` /
-     `speaker_options` do AssemblyAI. Padrão: 1 a 10 falantes, como lá.
+     `speaker_options` do AssemblyAI. Sem limite informado, estima de 1 a
+     MAX_SPEAKERS_AUTO (12).
   5. Frases curtas demais para um embedding confiável ("Sim.", "Tá.") herdam
      o falante mais parecido; empate apertado fica com o falante anterior.
 
@@ -62,6 +63,8 @@ class Word:
 class Sentence:
     words: list[Word] = field(default_factory=list)
     speaker: int = -1
+    # voz da frase (só frases com MIN_EMBED_SECONDS ou mais); usada pelo estudo
+    embedding: Optional[np.ndarray] = field(default=None, repr=False, compare=False)
 
     @property
     def start(self) -> float:
@@ -351,6 +354,7 @@ def diarize(audio: np.ndarray, words: Sequence[Word], extractor: EmbeddingExtrac
         if long_idx:
             i = long_idx[0]
             vec = _embed_span(extractor, audio, sentences[i].start, sentences[i].end)
+            sentences[i].embedding = vec
             return sentences, {0: vec}
         return sentences, {}
 
@@ -358,8 +362,9 @@ def diarize(audio: np.ndarray, words: Sequence[Word], extractor: EmbeddingExtrac
                     for i in long_idx])
     secs = np.array([sentences[i].duration for i in long_idx])
     labels = cluster(emb, min_speakers, max_speakers, secs)
-    for i, lab in zip(long_idx, labels):
+    for k, (i, lab) in enumerate(zip(long_idx, labels)):
         sentences[i].speaker = int(lab)
+        sentences[i].embedding = emb[k]
 
     k = int(labels.max()) + 1
     centroids = np.stack([emb[labels == j].mean(0) for j in range(k)])
