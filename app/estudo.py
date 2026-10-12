@@ -36,6 +36,7 @@ import bisect
 import logging
 import re
 from collections import Counter
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Sequence
 
@@ -65,6 +66,130 @@ GRUPO_DUVIDA = 0.80  # mesmo limiar de turnos.LIMIAR_VOZ; só entre "[?]"
 GRUPO_DUVIDA_MIN_SECONDS = 3.0
 
 DUVIDA = "[?]"
+# Sugestão "[?] X?" (nome com uma só menção): só aparece se o candidato for
+# parecido com a lista/participantes, vier depois de "irmão/irmã" ou de uma
+# autoapresentação. Senão, só "[?]". No salão saíam "Temos?", "Digital?",
+# "Eva?" (de "Adão e Eva") e "Fernando Cross?".
+SUGESTAO_SEMELHANCA = 0.75
+_TITULOS = {"irmao", "irma", "irmaos", "irmas"}
+_POR_FAVOR_PALAVRAS = {"por favor", "por gentileza"}
+_APRESENTACAO = re.compile(
+    r"(?:\bsou (?:o|a)|\bnome e|\baqui e (?:o|a)|\bquem fala e (?:o|a))$"
+)
+# palavras que nunca são sugeridas como nome: comuns do português e nomes
+# bíblicos que aparecem no texto lido
+_BLOQUEIO_SUGESTAO = {
+    _irmaos.fold(w)
+    for w in (
+        "adão",
+        "eva",
+        "jesus",
+        "jeová",
+        "cristo",
+        "satanás",
+        "diabo",
+        "deus",
+        "davi",
+        "moisés",
+        "paulo",
+        "pedro",
+        "joão",
+        "abraão",
+        "isaque",
+        "jacó",
+        "josé",
+        "maria",
+        "noé",
+        "jó",
+        "daniel",
+        "elias",
+        "isaías",
+        "jeremias",
+        "salomão",
+        "saul",
+        "samuel",
+        "rute",
+        "ester",
+        "sara",
+        "raquel",
+        "lázaro",
+        "mateus",
+        "marcos",
+        "lucas",
+        "tiago",
+        "timóteo",
+        "tito",
+        "filemom",
+        "gênesis",
+        "êxodo",
+        "salmos",
+        "provérbios",
+        "apocalipse",
+        "romanos",
+        "coríntios",
+        "hebreus",
+        "efésios",
+        "gálatas",
+        "filipenses",
+        "israel",
+        "temos",
+        "digital",
+        "tem",
+        "ter",
+        "ser",
+        "estar",
+        "fazer",
+        "pode",
+        "podemos",
+        "sabe",
+        "sabemos",
+        "vemos",
+        "vimos",
+        "veja",
+        "vejam",
+        "certo",
+        "sim",
+        "não",
+        "bom",
+        "boa",
+        "bem",
+        "muito",
+        "mais",
+        "menos",
+        "todo",
+        "nada",
+        "aqui",
+        "ali",
+        "agora",
+        "hoje",
+        "então",
+        "também",
+        "porque",
+        "quando",
+        "como",
+        "onde",
+        "qual",
+        "quem",
+        "que",
+        "isso",
+        "esse",
+        "essa",
+        "este",
+        "esta",
+        "outro",
+        "outra",
+        "mesmo",
+        "parágrafo",
+        "pergunta",
+        "resposta",
+        "texto",
+        "versículo",
+        "capítulo",
+        "sentinela",
+        "estudo",
+        "leitura",
+    )
+}
 _PREFIXO_ROTULO_NOME = "E"  # rótulos novos de pessoa nomeada: E1, E2...
 _PREFIXO_ROTULO_DUVIDA = "Q"  # rótulos de trecho em dúvida: Q1, Q2...
 
@@ -138,6 +263,12 @@ class Dono:
     rotulo: Optional[str]
     nome: str
     origem: str
+    exibido: Optional[str] = None  # nome mostrado, se diferente de `nome`
+
+    @property
+    def mostra(self) -> str:
+        """Nome que vai para a tela e os arquivos."""
+        return self.nome if self.exibido is None else self.exibido
 
 
 @dataclass
@@ -178,6 +309,24 @@ class _Nomes:
             return False
         c = _irmaos.corrige(nome, self.entradas)
         return c.casou and c.origem in ("exato", "grafia")
+
+    def parecido(self, nome: str) -> bool:
+        """Grafia parecida (>= SUGESTAO_SEMELHANCA) com um nome da lista
+        (nome, partes do nome e grafias cadastradas) ou dos participantes."""
+        alvos: set[str] = set()
+        for e in self.entradas:
+            alvos.add(_irmaos.fold(e.nome))
+            alvos.update(_irmaos.fold(x) for x in e.nome.split())
+            alvos.update(_irmaos.fold(g) for g in e.grafias)
+        for pt in self.part:
+            alvos.add(_irmaos.fold(pt))
+            alvos.update(_irmaos.fold(x) for x in pt.split())
+        chave = _irmaos.fold(nome)
+        return any(
+            SequenceMatcher(None, chave, a).ratio() >= SUGESTAO_SEMELHANCA
+            for a in alvos
+            if a
+        )
 
     @staticmethod
     def mesmo(a: str, b: str) -> bool:
@@ -347,9 +496,9 @@ def _pula_por_favor(pal: list[Palavra], i: int, f: Frase) -> int:
 
 def chamadas(
     pal: list[Palavra], frases: list[Frase], e: Estrutura, nm: _Nomes
-) -> list[tuple[int, str, int]]:
-    """(1ª palavra do trecho do chamado, nome cru, frase da chamada)."""
-    out: list[tuple[int, str, int]] = []
+) -> list[tuple[int, str, int, int]]:
+    """(1ª palavra do trecho do chamado, nome cru, frase da chamada, palavra do nome)."""
+    out: list[tuple[int, str, int, int]] = []
     for k, f in enumerate(frases):
         if not (e.inicio <= pal[f.i0].inicio < e.fim):
             continue
@@ -357,11 +506,11 @@ def chamadas(
             ch = [(n, i) for t, n, i in f.eventos if t == "chamada"]
             if ch:
                 n, i = ch[-1]
-                out.append((_pula_por_favor(pal, i + 1, f), n, k))
+                out.append((_pula_por_favor(pal, i + 1, f), n, k, i))
             elif k + 1 < len(frases) and frases[k + 1].cluster != e.dirigente:
                 v = _vocativo_final(pal, frases, k, e.dirigente)
                 if v and not any(c[2] >= k - 3 and c[0] > v[1] - 1 for c in out[-1:]):
-                    out.append((_pula_por_favor(pal, v[1] + 1, f), v[0], k))
+                    out.append((_pula_por_favor(pal, v[1] + 1, f), v[0], k, v[1]))
             continue
         # chamada no começo de turno alheio: "Irmão Luiz, porque..." / "Janice, aqui..."
         if k > 0 and frases[k - 1].cluster == e.dirigente:
@@ -377,7 +526,7 @@ def chamadas(
                         and not _nomes._nao_e_nome(nome)
                         and (corr is None or corr.casou)
                     ):
-                        out.append((f.i0 + j + 1, nome, k))
+                        out.append((f.i0 + j + 1, nome, k, f.i0 + j))
                     break
     return out
 
@@ -423,6 +572,14 @@ def trecho_do_chamado(
 
 def agradecido_em(pal: list[Palavra], frases: list[Frase], k: int) -> Optional[str]:
     """Nome agradecido no começo da fala do dirigente que começa na frase k."""
+    achado = _agradecimento_em(pal, frases, k)
+    return achado[0] if achado else None
+
+
+def _agradecimento_em(
+    pal: list[Palavra], frases: list[Frase], k: int
+) -> Optional[tuple[str, int]]:
+    """(nome agradecido, palavra do nome) no começo da fala que começa na frase k."""
     if k >= len(frases):
         return None
     f0 = frases[k]
@@ -431,7 +588,7 @@ def agradecido_em(pal: list[Palavra], frases: list[Frase], k: int) -> Optional[s
             break
         for t, n, i in f.eventos:
             if t == "agradecimento" and i - f0.i0 <= AGRADECIMENTO_PALAVRAS:
-                return n
+                return n, i
     return None
 
 
@@ -523,7 +680,10 @@ def agrupa_duvidas(
     for i, d in list(dono.items()):
         if d.rotulo in troca:
             dono[i] = Dono(
-                troca[d.rotulo], d.nome, d.origem + "; voz agrupada com outro [?]"
+                troca[d.rotulo],
+                d.nome,
+                d.origem + "; voz agrupada com outro [?]",
+                d.exibido,
             )
     return len(troca)
 
@@ -570,6 +730,45 @@ def monta(
             Frase(i0, len(pal) - 1, int(s.speaker), getattr(s, "embedding", None))
         )
     return pal, frases
+
+
+def _exibe_sugestao(
+    pal: list[Palavra], cru: str, pos: int, nm: _Nomes, nome: str
+) -> Optional[str]:
+    """Nome exibido para a sugestão de uma menção só (None = "[?] nome?").
+
+    Sai só "[?]" quando o candidato não tem cara de nome: palavra bloqueada
+    (comum ou bíblica); correção por semelhança que troca a letra inicial
+    ("Ana" -> "Deana"); ou nenhuma evidência de pessoa: sem "irmão/irmã",
+    sem "por favor" junto, sem autoapresentação e sem semelhança com a lista
+    ou os participantes. Nome composto com 2ª parte desconhecida fica só com a
+    1ª ("Fernando Cross" -> "Fernando")."""
+    partes = cru.split()
+    if not partes or any(_irmaos.fold(x) in _BLOQUEIO_SUGESTAO for x in partes):
+        return DUVIDA
+    if any(_nomes._nao_e_nome(x) for x in partes):
+        return DUVIDA
+    mostrado = nome.split()
+    if mostrado and _irmaos.fold(mostrado[0])[:1] != _irmaos.fold(partes[0])[:1]:
+        return DUVIDA
+    evidencia = nm.parecido(cru) or nm.parecido(partes[0])
+    if 0 <= pos < len(pal):
+        ini = max(0, pos - (len(partes) - 1))
+        antes = [_limpa(pal[j].texto) for j in range(max(0, ini - 4), ini)]
+        depois = [_limpa(pal[j].texto) for j in range(pos + 1, min(len(pal), pos + 3))]
+        if antes and antes[-1] in _TITULOS:
+            evidencia = True
+        if _APRESENTACAO.search(" ".join(antes)):
+            evidencia = True
+        if " ".join(antes[-2:]) in _POR_FAVOR_PALAVRAS or (
+            " ".join(depois) in _POR_FAVOR_PALAVRAS
+        ):
+            evidencia = True
+    if not evidencia:
+        return DUVIDA
+    if len(partes) > 1 and len(mostrado) > 1 and not nm.parecido(partes[-1]):
+        return f"{DUVIDA} {mostrado[0]}?"
+    return None
 
 
 def _donos(
@@ -629,19 +828,19 @@ def _donos(
     chs = chamadas(pal, frases, e, nm)
     inicios = {c[0] for c in chs}
     # palavras da chamada no começo de turno alheio voltam para o dirigente
-    for ini, _, k in chs:
+    for ini, _, k, _pos in chs:
         f = frases[k]
         if f.cluster != e.dirigente:
             for i in range(f.i0, ini):
                 dono[i] = Dono(d_rot, d_nome, "chamada no início do turno")
-    trechos: list[tuple[list[int], Optional[str]]] = []
-    for ini, nome, _ in chs:
+    trechos: list[tuple[list[int], Optional[str], int]] = []
+    for ini, nome, _, pos in chs:
         ws = trecho_do_chamado(pal, frases, ini, e, leitura, inicios)
         if ws:
             for n_parte, parte in enumerate(corta_por_voz(pal, frases, ws)):
-                trechos.append((parte, nome if n_parte == 0 else None))
-    info["cortes_voz_trecho"] = sum(1 for _, n in trechos if n is None)
-    for ws, nome in trechos:
+                trechos.append((parte, nome if n_parte == 0 else None, pos))
+    info["cortes_voz_trecho"] = sum(1 for _, n, _ in trechos if n is None)
+    for ws, nome, pos in trechos:
         if nome is None:  # parte depois da troca de voz: não é o chamado
             dentro = set(ws)
             for k in dict.fromkeys(pal[i].frase for i in ws):
@@ -675,7 +874,10 @@ def _donos(
                 dono[i] = Dono("?", DUVIDA, origem)
             elif fraco:
                 dono[i] = Dono(
-                    "?", f"{DUVIDA} {nome_final}?", origem + "; fora da lista, 1 menção"
+                    "?",
+                    f"{DUVIDA} {nome_final}?",
+                    origem + "; fora da lista, 1 menção",
+                    _exibe_sugestao(pal, nome, pos, nm, nome_final),
                 )
             elif amb:
                 dono[i] = Dono("?", f"{DUVIDA} {nome_final} (homônimo)", origem)
@@ -697,19 +899,25 @@ def _donos(
             k += 1
         nxt = run[-1] + 1
         agr = None
+        pos_agr = -1
         if (
             nxt < len(pal)
             and pal[nxt].inicio - pal[run[-1]].fim <= CORRIDA_MAX_PAUSA
             and frases[pal[nxt].frase].cluster == e.dirigente
         ):
-            agr = agradecido_em(pal, frases, pal[nxt].frase)
+            achado = _agradecimento_em(pal, frases, pal[nxt].frase)
+            if achado:
+                agr, pos_agr = achado
         if agr:
             n, amb = nm.corrige(agr)
             fraco = not nm.conhecido(agr)
             for x in run:
                 if fraco:
                     dono[x] = Dono(
-                        "?", f"{DUVIDA} {n}?", "agradecimento; fora da lista, 1 menção"
+                        "?",
+                        f"{DUVIDA} {n}?",
+                        "agradecimento; fora da lista, 1 menção",
+                        _exibe_sugestao(pal, agr, pos_agr, nm, n),
                     )
                 elif amb:
                     dono[x] = Dono("?", f"{DUVIDA} {n} (homônimo)", "agradecimento")
@@ -729,7 +937,7 @@ def _donos(
                 ult = (d.nome, i, f"{_PREFIXO_ROTULO_DUVIDA}{duvidas}")
             else:
                 ult = (d.nome, i, ult[2])
-            dono[i] = Dono(ult[2], d.nome, d.origem)
+            dono[i] = Dono(ult[2], d.nome, d.origem, d.exibido)
         else:
             ult = None
     info["duvidas"] = duvidas
@@ -819,7 +1027,7 @@ def _pessoas(
     for i in sorted(dono):
         d = dono[i]
         if d.rotulo != ant:
-            trechos.setdefault(d.rotulo or "", []).append((d.nome, d.origem))
+            trechos.setdefault(d.rotulo or "", []).append((d.mostra, d.origem))
         ant = d.rotulo
     papeis_fixos = {"dirigente", "leitor"}
     out: list[_turnos.Pessoa] = []

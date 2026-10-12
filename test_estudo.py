@@ -374,3 +374,63 @@ def test_memoria_de_vozes_nunca_aprende_duvida(dados):
     )
     assert aprendidos == ["Ana"]
     assert [p["nome"] for p in vozes.list_people()] == ["Ana"]
+
+
+# --------------------------------------------------------------------------
+# Sugestão "[?] X?": só candidato com cara de nome
+# --------------------------------------------------------------------------
+def _sugestao(chamada: str, participantes=()) -> str:
+    extra = [(D, chamada, 3), (6, COMENTARIO, 6), (D, "Vamos ao parágrafo 5.", 2)]
+    frases, segs, embed = _reuniao(_estudo(extra))
+    res = estudo.aplica(frases, segs, [], embed, LISTA, list(participantes))
+    return _nome_em(res, _inicio_do_texto(frases, "Jeová cuida", 8) + 1)[1]
+
+
+def test_palavra_comum_nao_vira_sugestao():
+    # "Temos?" casa com a gramática de chamada ("X?"), mas não é nome
+    assert _sugestao("E o que mais nós Temos?") == "[?]"
+
+
+def test_nome_biblico_do_texto_nao_vira_sugestao():
+    assert _sugestao("O que aprendemos com Moisés?") == "[?]"
+
+
+def test_palavra_sem_titulo_e_sem_semelhanca_nao_vira_sugestao():
+    assert _sugestao("E sobre o mundo Digital?") == "[?]"
+
+
+def test_sugestao_depois_de_irmao_aparece():
+    assert _sugestao("Mais alguém? Irmã Glaucia, por favor.") == "[?] Glaucia?"
+
+
+def test_sugestao_parecida_com_participante_aparece():
+    # "Glauce" não está na lista, mas é parecido com o participante "Glaucia"
+    assert _sugestao("Mais alguém? Glauce?", ["Glaucia"]) == "[?] Glaucia?"
+
+
+def test_sugestao_nao_muda_o_rotulo_do_trecho():
+    # trocar a sugestão por "[?]" é só exibição: a partição fica igual
+    extra = [
+        (D, "E o que mais nós Temos?", 3),
+        (6, COMENTARIO, 6),
+        (D, "Vamos ao parágrafo 5.", 2),
+    ]
+    frases, segs, embed = _reuniao(_estudo(extra))
+    res = estudo.aplica(frases, segs, [], embed, LISTA, [])
+    rot = _nome_em(res, _inicio_do_texto(frases, "Jeová cuida", 8) + 1)[0]
+    assert rot.startswith("Q")
+    assert sum(1 for p in res.pessoas if p.rotulo == rot) == 1
+
+
+def test_correcao_que_troca_a_inicial_nao_vira_sugestao():
+    # "Ena" ~ "Deena" (0,75) pela semelhança, mas a inicial muda: não é ela
+    # (no salão, "Ana, Ana" virou "Deana?" e era a Edna)
+    assert _sugestao("E aí Ena, Ena, por favor.", ["Deena"]) == "[?]"
+
+
+def test_chamada_com_por_favor_vale_como_evidencia():
+    assert _sugestao("Mais alguém? Por favor, Glaucia.") == "[?] Glaucia?"
+
+
+def test_nome_composto_com_segunda_parte_desconhecida_fica_so_o_primeiro():
+    assert _sugestao("Mais alguém? Irmão Fernando Cross.") == "[?] Fernando?"
