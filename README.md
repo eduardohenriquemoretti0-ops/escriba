@@ -124,7 +124,7 @@ O pipeline imita o do AssemblyAI. Cada recurso tem um equivalente local:
 | `punctuate` / `format_text` | pontuação e maiúsculas nativas do Whisper |
 | `keyterms_prompt` / `word_boost` | `hotwords` do Whisper com os participantes + `ESCRIBA_TERMOS` |
 | `speaker_labels` | embedding de voz por frase (NeMo TitaNet, ONNX) + agrupamento espectral |
-| `speakers_expected` / `speaker_options` | mín./máx. de falantes no envio (padrão 1–10) |
+| `speakers_expected` / `speaker_options` | mín./máx. de falantes no envio (estimativa 1–12) |
 | `utterances` | frases do mesmo falante unidas em blocos |
 | filtro de ruído/silêncio | VAD Silero e limiares anti-alucinação do Whisper |
 
@@ -137,6 +137,17 @@ Como funciona a separação de falantes (`app/engines/diarize.py`):
    autovalores (eigengap), sempre dentro do mínimo/máximo informado.
 5. Frases curtas ("Sim.", "Tá.") herdam a voz mais parecida. Em caso de
    empate, ficam com o falante anterior.
+
+**Trechos pulados ("buracos").** Quando o áudio fica baixo (comentário longe do
+microfone), o Whisper às vezes não devolve nenhuma palavra num trecho em que há
+fala. O Escriba procura intervalos sem palavra (fora do cântico) em que o VAD,
+com limiar mais baixo, acha pelo menos 1 s de fala; aplica ganho (até 18 dB, sem
+estourar) e transcreve só esse trecho com os mesmos parâmetros, descartando
+frases inventadas e trechos de baixa confiança (`app/buracos.py`). Isso custa
+CPU (medido: +10,6% no salão, +28,5% numa conversa de 2 pessoas). Os buracos com
+mais fala vão primeiro, e há um teto: `ESCRIBA_BURACOS_TETO_CPU` (segundos de
+CPU por segundo de áudio, padrão 0,75). `ESCRIBA_BURACOS=0` desliga. O
+progresso aparece na tela ("Recuperando trechos pulados — 3/12").
 
 Não usa PyTorch nem token do Hugging Face. O executável fica leve e roda em
 qualquer PC. Na CPU (i5 de 4 núcleos), leva aproximadamente o tempo do próprio
@@ -157,6 +168,18 @@ A transcrição acontece em três fases:
      é o Fernando). Fala citada ("ele disse: …, Fernando") não conta.
    Grafia parecida com um participante informado vale por ele: "Rosilene"
    na fala vira "Rosilaine Andrade".
+
+**Reunião com estudo (A Sentinela).** Quando a reunião tem a estrutura de um
+estudo (um dirigente com pelo menos 8 chamadas e 2 anúncios de parágrafo ou
+leitura), a fala depois de cada chamada ("Irmão Paulo, por favor") é de quem
+foi chamado, até o dirigente voltar, mesmo que a voz se pareça com a de outra
+pessoa no mesmo microfone (`app/estudo.py`). Nome só sai com evidência: trecho
+sem chamada nem agradecimento sai **"[?]"**; nome fora da lista de irmãos e dos
+participantes precisa de chamada **e** agradecimento, senão sai "[?] Nome?";
+homônimo da lista sai "[?] Nome (homônimo)". Uma conversa comum não tem essa
+estrutura e fica como está. "[?]" nunca vira nome nem voz aprendida: ouça o
+trecho e digite o nome na revisão. Grafia que o Whisper erra com frequência
+("Marilês" para Marines) deve ser cadastrada na lista de irmãos.
 
 Os nomes saem **sugeridos** na tela "Revisar nomes". Ao salvar a revisão,
 o Escriba **aprende a voz** de cada pessoa confirmada (`app/vozes.py`). Na
