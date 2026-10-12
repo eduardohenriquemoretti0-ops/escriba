@@ -438,3 +438,38 @@ def test_co_dirigente_nao_vira_comentarista():
     papeis = {p.rotulo: p.papel for p in pessoas}
     assert "E" not in [p.rotulo for p in pessoas if p.papel == "comentarista"]
     assert papeis.get("E") == "dirigente" and papeis.get("F") == "dirigente"
+
+
+# --- grafias cadastradas trocadas no texto da transcrição (2026-10-12) ---
+def test_corrige_texto_troca_so_grafia_cadastrada():
+    from app.irmaos import Entrada, corrige_texto
+    lista = [Entrada("1", "Ademir", grafias=("Modemir", "Módemir", "Admir")),
+             Entrada("2", "Marines", grafias=("Marilês",))]
+    txt = "Irmão Orador, Módemir, Paulino. Modemir e MÓDEMIR. Irmã Marilês. Modemiro e Ademar."
+    assert corrige_texto(txt, lista) == (
+        "Irmão Orador, Ademir, Paulino. Ademir e Ademir. Irmã Marines. Modemiro e Ademar.")
+
+
+def test_corrige_texto_ignora_minuscula_e_conflito():
+    from app.irmaos import Entrada, corrige_texto
+    lista = [Entrada("1", "Edna", grafias=("Helio",)), Entrada("2", "Rita", grafias=("Helio",)),
+             Entrada("3", "Nadir", grafias=("Nadeira",))]
+    assert corrige_texto("Helio e Nadeira, nadeira.", lista) == "Helio e Nadir, nadeira."
+    assert corrige_texto("sem lista", []) == "sem lista"
+
+
+def test_transcricao_sai_com_grafia_corrigida_e_cru_intacto(tmp_path, monkeypatch):
+    import json
+    from app import config, irmaos, jobs, review
+    from app.engines.base import Segment
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    irmaos.criar("Ademir", "orador", ["Módemir"])
+    job = jobs.new_job(filename="r.wav", engine="local", language="pt",
+                       min_speakers=None, max_speakers=None, want_summary=False)
+    review.save_raw(job, [Segment(0, 3, "A", "Bem-vindo, irmão Módemir Paulino.")])
+    review.render_outputs(job.id)
+    assert "irmão Ademir Paulino" in job.path("transcricao.txt").read_text("utf-8")
+    cru = json.loads(job.path("segmentos.json").read_text("utf-8"))
+    assert cru[0]["text"] == "Bem-vindo, irmão Módemir Paulino."

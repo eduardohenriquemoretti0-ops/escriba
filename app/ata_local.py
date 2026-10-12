@@ -85,7 +85,7 @@ def gera(job: jobs.Job) -> str:
             orador += " (nome pela grafia do anúncio: confira na revisão)"
         linhas += ["## Discurso público", "",
                    f"- **Orador:** {orador}",
-                   f"- **Tema:** {p1.get('tema') or 'não identificado'}"]
+                   f"- **Tema:** {review.corrige_texto(p1.get('tema') or '', job) or 'não identificado'}"]
         if p1.get("orador_inicio") is not None and p1.get("orador_fim") is not None:
             linhas.append(f"- **Trecho:** {exports.hms(p1['orador_inicio'])} a "
                           f"{exports.hms(p1['orador_fim'])}")

@@ -314,6 +314,49 @@ def frase_irmaos(entradas: Sequence[Entrada], limite: int,
 # --------------------------------------------------------------------------
 # Participantes digitados
 # --------------------------------------------------------------------------
+_PALAVRA = re.compile(r"[^\W\d_][\w'’-]*")
+
+
+def mapa_grafias(entradas: Sequence[Entrada]) -> dict[str, str]:
+    """Grafia cadastrada (sem caixa e acento) -> nome certo da lista.
+
+    Fica de fora a grafia que é o nome de outra entrada ou que aparece em duas
+    entradas com nomes diferentes: aí não há como saber quem é."""
+    nomes = {fold(e.nome) for e in entradas}
+    mapa: dict[str, str] = {}
+    conflito: set[str] = set()
+    for e in entradas:
+        for g in e.grafias:
+            k = fold(_limpa(g))
+            if not k or k in nomes:
+                continue
+            if k in mapa and mapa[k] != e.nome:
+                conflito.add(k)
+            mapa.setdefault(k, e.nome)
+    return {k: v for k, v in mapa.items() if k not in conflito}
+
+
+def corrige_texto(texto: str, entradas: Sequence[Entrada]) -> str:
+    """Troca no texto a palavra que É uma grafia cadastrada pelo nome da lista.
+
+    Só palavra com maiúscula ("Módemir" -> "Ademir"); caixa e acento não
+    contam. Palavra parecida que não está cadastrada fica como está. Grafia
+    de mais de uma palavra é trocada pela frase inteira."""
+    mapa = mapa_grafias(entradas)
+    if not mapa or not texto:
+        return texto
+    for k, nome in mapa.items():
+        if " " in k:
+            texto = re.sub(r"(?<![\w])" + r"\s+".join(re.escape(x) for x in k.split())
+                           + r"(?![\w])", nome, texto, flags=re.IGNORECASE)
+
+    def troca(m: re.Match) -> str:
+        w = m.group(0)
+        return mapa.get(fold(w), w) if w[:1].isupper() else w
+
+    return _PALAVRA.sub(troca, texto)
+
+
 def corrige_participante(nome: str, entradas: Sequence[Entrada]) -> Optional[str]:
     """Nome da lista para um participante digitado com erro, ou None.
 

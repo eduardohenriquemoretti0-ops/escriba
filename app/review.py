@@ -9,16 +9,18 @@ original nem aplicar uma correção duas vezes.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from collections import Counter
 from dataclasses import asdict
 from difflib import SequenceMatcher
 
-from . import exports, jobs
+from . import exports, irmaos, jobs
 from .engines.base import CORO_LABEL, Segment
 
 SEG_FILE = "segmentos.json"
+log = logging.getLogger("escriba.review")
 
 MAX_PARTICIPANTS = 80
 MAX_CORRECTIONS = 300
@@ -91,11 +93,19 @@ def apply_corrections(text: str, corrections: list[dict]) -> str:
     return text
 
 
+def corrige_texto(text: str, job: jobs.Job, entradas=None) -> str:
+    """Grafias cadastradas na lista de irmãos ("Módemir" -> "Ademir") e depois
+    as correções da revisão. O cru (segmentos.json) não muda."""
+    if entradas is None:
+        entradas = irmaos.listar_seguro(log)
+    return apply_corrections(irmaos.corrige_texto(text, entradas), job.corrections)
+
+
 def segments_for(job: jobs.Job) -> list[Segment]:
     """Segmentos já com as correções de grafia aplicadas."""
+    entradas = irmaos.listar_seguro(log)
     return [
-        Segment(s.start, s.end, s.speaker,
-                apply_corrections(s.text, job.corrections))
+        Segment(s.start, s.end, s.speaker, corrige_texto(s.text, job, entradas))
         for s in load_raw(job)
     ]
 
@@ -196,6 +206,7 @@ def render_outputs(job_id: str) -> None:
 def speakers_overview(job: jobs.Job) -> list[dict]:
     """Um item por 'Falante N': quantas falas, palavras e trechos de amostra."""
     raw_segs = load_raw(job)
+    entradas = irmaos.listar_seguro(log)
     default = exports.speaker_map(raw_segs)
     rows: dict[str, dict] = {}
     for seg in raw_segs:
@@ -215,10 +226,10 @@ def speakers_overview(job: jobs.Job) -> list[dict]:
         row["segundos"] += max(0.0, seg.end - seg.start)
         row["palavras"] += len(seg.text.split())
         if not row["primeira"]:
-            txt = apply_corrections(seg.text, job.corrections)
+            txt = corrige_texto(seg.text, job, entradas)
             row["primeira"] = txt if len(txt) <= 140 else txt[:137] + "…"
         if len(row["amostras"]) < 3 and len(seg.text.split()) >= 6:
-            txt = apply_corrections(seg.text, job.corrections)
+            txt = corrige_texto(seg.text, job, entradas)
             row["amostras"].append(txt if len(txt) <= 140 else txt[:137] + "…")
     return list(rows.values())
 
