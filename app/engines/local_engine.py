@@ -262,6 +262,46 @@ def _limites(min_speakers: Optional[int],
     return lo, hi
 
 
+def _whisper_kwargs(language: Optional[str]) -> dict:
+    """Parâmetros do Whisper (os mesmos na transcrição e nos buracos).
+
+    Hotwords vão à parte, como frase pontuada; nunca `initial_prompt` junto
+    (perdeu palavras no teste: 313 para 280)."""
+    return dict(
+        language=language or None,
+        beam_size=config.WHISPER_BEAM_SIZE,
+        word_timestamps=True,
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500, "speech_pad_ms": 300},
+        # Sem herdar o texto anterior: evita o Whisper entrar em laço
+        # repetindo a mesma frase (falha clássica em reuniões longas).
+        condition_on_previous_text=False,
+        hallucination_silence_threshold=2.0,
+        compression_ratio_threshold=2.4,
+        no_speech_threshold=0.6,
+    )
+
+
+def _junta_buracos(sentences: list, centroids: dict, buracos: list,
+                   extractor: diarize.EmbeddingExtractor,
+                   audio: np.ndarray) -> list:
+    """Frases das palavras recuperadas nos buracos, com a voz mais parecida.
+
+    O agrupamento já foi feito sem elas; cada frase nova vai para o falante
+    de centróide mais próximo (cosseno)."""
+    chaves = sorted(centroids)
+    cen = np.stack([centroids[j] for j in chaves]) if chaves else None
+    novas = []
+    for ws in buracos:
+        for sen in diarize.build_sentences(ws):
+            vec = diarize._embed_span(extractor, audio, sen.start,
+                                      max(sen.end, sen.start + 0.5))
+            sen.speaker = int(chaves[int(np.argmax(cen @ vec))]) if cen is not None else 0
+            sen.embedding = vec if sen.duration >= diarize.MIN_EMBED_SECONDS else None
+            novas.append(sen)
+    return sorted(sentences + novas, key=lambda s: s.start)
+
+
 def _load_audio(path: Path):
     import numpy as np
     from faster_whisper.audio import decode_audio
@@ -286,6 +326,32 @@ class LocalEngine:
         self.scan: dict = {}                    # resumo da fase 1
         self.estudo: list = []                  # pessoas do estudo (turnos)
         self.estudo_info: dict = {}             # estrutura detectada (dirigente...)
+        self.buracos_info: dict = {}            # trechos pulados retranscritos
+
+    def _buracos(self, audio: np.ndarray, words: list, coro: list, model,
+                 hot: Optional[str], language: Optional[str],
+                 progress: ProgressCB) -> list[list[diarize.Word]]:
+        """Retranscreve os trechos pulados, dentro do teto de CPU (config)."""
+        from .. import buracos
+
+        self.buracos_info = {}
+        if not config.BURACOS_ATIVO:
+            return []
+        duracao = len(audio) / diarize.SAMPLE_RATE
+        kw = _whisper_kwargs(language)
+        kw["vad_parameters"] = {**kw["vad_parameters"], "threshold": buracos.VAD_LIMIAR}
+
+        def transcrever(y: np.ndarray):
+            segs, _ = model.transcribe(y, hotwords=hot, **kw)
+            return segs
+
+        novos, rel = buracos.retranscreve(
+            audio, [(w.start, w.end) for w in words], coro, transcrever,
+            teto_cpu_s=config.BURACOS_TETO_CPU * duracao,
+            e_alucinacao=_is_hallucination, progress=progress)
+        self.buracos_info = rel.como_dict()
+        _log.info("Buracos: %s", self.buracos_info)
+        return novos
 
     def transcribe(
         self,
@@ -328,21 +394,9 @@ class LocalEngine:
         progress(f"Fase 2/3 · Carregando modelo de transcrição ({config.WHISPER_MODEL})")
         model = _whisper_model()
 
+        hot = _hotwords(vocabulary, language, entradas)
         segments_iter, info = model.transcribe(
-            audio,
-            language=language or None,
-            beam_size=config.WHISPER_BEAM_SIZE,
-            word_timestamps=True,
-            vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500, "speech_pad_ms": 300},
-            # Sem herdar o texto anterior: evita o Whisper entrar em laço
-            # repetindo a mesma frase (falha clássica em reuniões longas).
-            condition_on_previous_text=False,
-            hallucination_silence_threshold=2.0,
-            compression_ratio_threshold=2.4,
-            no_speech_threshold=0.6,
-            hotwords=_hotwords(vocabulary, language, entradas),
-        )
+            audio, hotwords=hot, **_whisper_kwargs(language))
 
         words: list[diarize.Word] = []
         coro: list[tuple[float, float]] = []      # trechos de cântico/coro
@@ -365,11 +419,18 @@ class LocalEngine:
         if not words and not coro:
             return []
         coro.extend(_lacunas_de_coro(audio, words))
+        coro = _agrupa_coro(coro)
+
+        # Trechos que o Whisper pulou (áudio baixo): só depois do coro, para
+        # cântico não virar buraco. Entram depois da separação de falantes.
+        buracos = self._buracos(audio, words, coro, model, hot, language, progress)
 
         progress("Fase 2/3 · Separando as falas por pessoa")
         sentences, centroids = diarize.diarize(
             audio, words, extractor,
             min_speakers=min_speakers, max_speakers=max_speakers)
+        if buracos:
+            sentences = _junta_buracos(sentences, centroids, buracos, extractor, audio)
 
         talk = {}
         for s in sentences:
@@ -392,14 +453,27 @@ class LocalEngine:
                 out.append(Segment(start=s.start, end=s.end, speaker=label, text=s.text))
         # Estudo bíblico: comentários separados por turno, guiados pela estrutura
         # (dirigente chama e agradece). Sem a estrutura, nada muda.
-        from .. import turnos
+        from .. import estudo, turnos
+
+        def embed(a: float, b: float) -> np.ndarray:
+            return diarize._embed_span(extractor, audio, a, b)
+
         out, pessoas, self.estudo_info = turnos.reatribui(
-            out, lambda a, b: diarize._embed_span(extractor, audio, a, b),
-            irmaos=entradas, participantes=list(vocabulary or []))
+            out, embed, irmaos=entradas, participantes=list(vocabulary or []))
+        # Estudo por palavra (dirigente ↔ chamado, nome só com evidência).
+        # A guarda deixa a conversa comum como está.
+        progress("Fase 2/3 · Conferindo a estrutura da reunião")
+        res = estudo.aplica(sentences, out, pessoas, embed, entradas,
+                            list(vocabulary or []))
+        if res.ativa:
+            out, pessoas = res.segmentos, res.pessoas
+        self.estudo_info = {**self.estudo_info, "estudo_por_palavra": res.info}
+        if self.buracos_info:
+            self.estudo_info["buracos"] = self.buracos_info
         self.estudo = [dataclasses.asdict(p) for p in pessoas]
 
         # Cânticos: um bloco "em coro" por trecho, fora da separação de falantes
-        for a, b in _agrupa_coro(coro):
+        for a, b in coro:
             out.append(Segment(start=a, end=b, speaker=CORO_LABEL, text=CORO_TEXT))
         out.sort(key=lambda sg: sg.start)
         return out
