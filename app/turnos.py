@@ -114,6 +114,7 @@ class Pessoa:
     comentarios: int               # nº de turnos (ou blocos, p/ dirigente/leitor)
     segundos: float
     nomeada: bool
+    duvida: bool = False           # trecho sem evidência de nome: exibido como "[?]"
 
 
 # --------------------------------------------------------------------------
