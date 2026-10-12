@@ -225,7 +225,9 @@ def _participant_names(job: jobs.Job) -> list[str]:
     receberam nome (os 'Falante N' genéricos ficam de fora)."""
     if job.participants:
         return list(job.participants)
-    named = [n for n in job.speakers if not re.match(r"^Falante \d+$", n)]
+    # "Em coro" e "[?]" não são pessoas: não assinam
+    named = [n for n in job.speakers if not re.match(r"^Falante \d+$", n)
+             and n != "Em coro" and not n.startswith("[?]")]
     return named
 
 

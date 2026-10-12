@@ -232,6 +232,14 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
     # nomes dos turnos do estudo (chamada/agradecimento do dirigente): sugestão
     # acima de conversa e eliminação, abaixo de voz reconhecida
     for pessoa in job.falantes_estudo or []:
+        if pessoa.get("duvida") and pessoa["rotulo"] in display:
+            # trecho do estudo sem evidência de nome: "[?]", nunca um nome
+            # deduzido da conversa (regra do Eduardo: na dúvida, [?])
+            auto[display[pessoa["rotulo"]]] = {
+                "nome": pessoa["nome"], "fonte": "duvida",
+                "detalhe": (pessoa.get("origem") or "sem chamada/agradecimento")
+                + " · ouça o trecho e digite o nome"}
+            continue
         if not pessoa.get("nomeada") or pessoa["rotulo"] not in display:
             continue
         label = display[pessoa["rotulo"]]
@@ -245,13 +253,17 @@ def _auto_names(job: jobs.Job, segments: list, voices: dict) -> None:
 
     # homônimos na lista: o nome é só sugestão, a observação diz para confirmar pela voz
     for label, info in auto.items():
+        if info["fonte"] == "duvida":
+            continue
         aviso = irmaos.corrige(info["nome"], entradas)
         if aviso.ambiguo:
             info["detalhe"] = f"{info['detalhe']} · {aviso.observacao}"
 
-    # mesmo nome não pode ir para duas vozes
+    # mesmo nome não pode ir para duas vozes ("[?]" pode: cada trecho é um)
     seen: set = set()
     for label in list(auto):
+        if auto[label]["fonte"] == "duvida":
+            continue
         if auto[label]["nome"] in seen:
             del auto[label]
         else:

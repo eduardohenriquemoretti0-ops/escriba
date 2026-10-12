@@ -160,6 +160,9 @@ def learn(job_id: str, assignments: dict, voices: dict) -> list[str]:
             voice = voices.get(label)
             if not name or not voice:
                 continue
+            if name.strip().startswith("[?]"):
+                # marca de dúvida não é nome: nunca vira assinatura de voz
+                continue
             person = people.setdefault(name, {"contribuicoes": []})
             person["contribuicoes"].append({
                 "job": job_id, "rotulo": label, "vetor": voice["vetor"],

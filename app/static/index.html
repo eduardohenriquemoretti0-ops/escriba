@@ -302,6 +302,7 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
 .part-linha button{background:none;border:none;color:var(--cinza);font-size:18px;padding:0 6px}
 .part-linha button:hover{color:var(--erro)}
 .spk .auto{display:block;font-size:11.5px;color:var(--ok);margin-top:3px}
+.spk .auto.duvida{color:var(--cinza)}
 .spk .auto .usar{background:none;color:var(--ok);border:1px solid var(--ok);border-radius:5px;
   font-size:11.5px;padding:1px 8px;margin-left:6px}
 .voz-linha{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
@@ -1284,7 +1285,8 @@ function renderRevisao(){
     <div class="spk">
       <div class="rot"><i style="background:var(${CORES[i % CORES.length]})"></i>${esc(s.label)}
         <span class="qtd">${fmtMin(s.segundos)} de fala · ${s.blocos ?? s.falas} blocos · ${s.palavras} palavras</span></div>
-      ${s.auto && !s.sem_nome ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
+      ${s.auto && !s.sem_nome && s.auto.fonte === "duvida" ? `<span class="auto duvida">Em dúvida: ${esc(s.auto.nome)} · ${esc(s.auto.detalhe)}</span>` : ""}
+      ${s.auto && !s.sem_nome && s.auto.fonte !== "duvida" ? `<span class="auto">Sugerido: ${esc(s.auto.nome)}${s.auto.fonte === "eliminacao" ? " (por eliminação)" : ""} · ${esc(s.auto.detalhe)}
         <button type="button" class="usar" data-usar="${esc(s.label)}" data-nome="${esc(s.auto.nome)}">Usar</button></span>` : ""}
       ${s.primeira ? `<small class="primeira">Primeira fala: <q>${esc(s.primeira)}</q></small>` : ""}
       ${(s.amostras || []).map(a => `<q>${esc(a)}</q>`).join("")}

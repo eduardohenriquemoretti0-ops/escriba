@@ -97,10 +97,18 @@ def gera(job: jobs.Job) -> str:
     linhas.append("")
 
     linhas += ["## Comentaristas", ""]
+    duvidas = 0
     for p in comentaristas:
         n = int(p.get("comentarios") or 0)
+        if p.get("duvida"):
+            duvidas += n          # sem evidência de nome: um total só, no fim
+            continue
         unidade = "comentário" if n == 1 else "comentários"
         linhas.append(f"- {p.get('nome')}: {n} {unidade}")
+    if duvidas:
+        unidade = "trecho" if duvidas == 1 else "trechos"
+        linhas.append(f"- [?] sem nome confirmado: {duvidas} {unidade} "
+                      "(confira na revisão)")
     if not comentaristas:
         linhas.append("- Nenhum comentário identificado.")
     linhas.append("")
