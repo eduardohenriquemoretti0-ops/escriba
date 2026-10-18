@@ -17,6 +17,12 @@ ProgressCB = Callable[[str], None]  # recebe o nome da fase atual
 CORO_LABEL = "CORO"
 CORO_TEXT = "(em coro, todos juntos, congregação cantando)"
 
+# Fala depois do encerramento (ex.: "Obrigado." após o Amém final): fica no
+# texto, mas não é um participante da reunião nem consome um "Falante N".
+FORA_LABEL = "FORA"
+FORA_NOME = "(fora da reunião)"
+NAO_PESSOA = (CORO_LABEL, FORA_LABEL)
+
 
 @dataclass
 class Segment:

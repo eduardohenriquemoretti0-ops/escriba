@@ -1,0 +1,163 @@
+{
+  "_leia": "Gabarito da reunião de 10-10-2026 (fim de semana). 'eduardo' = confirmado pelo Eduardo ouvindo o áudio. 'texto' = tirado da chamada/agradecimento dito no áudio (confirmar ao ouvir). Cada item: um trecho que CONTÉM a âncora deve sair com esse papel/nome.",
+  "entrada": "dados/10-10-2026_transcricao.srt",
+  "tipo": "fim_de_semana",
+  "papeis_informados": {
+    "presidente": "Rinaldo Santos",
+    "orador": "Ademir Baldino",
+    "leitor": "Wellington Passos"
+  },
+  "itens": [
+    {
+      "ancora": "visitantes e suas crianças nos visitam",
+      "papel": "presidente",
+      "quem": "Rinaldo Santos",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Santo Altíssimo Deus",
+      "papel": "presidente",
+      "quem": "Rinaldo Santos",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Prometeu a sua amizade",
+      "quem": "Em coro",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "É muito bom quando nós recebemos um presente",
+      "papel": "orador",
+      "quem": "Ademir Baldino",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Jeová não nos criou como robôs",
+      "papel": "orador",
+      "quem": "Ademir Baldino",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "todos nós aqui poderemos continuar sempre tomando as melhores decisões",
+      "papel": "orador",
+      "quem": "Ademir Baldino",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Muito obrigado, irmão Odimir",
+      "papel": "presidente",
+      "quem": "Rinaldo Santos",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Para darmos início à nossa segunda reunião",
+      "papel": "dirigente",
+      "quem": "José Eduardo Silveira",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Só ouve uma angústia",
+      "quem": "Em coro",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "A partir do momento em que decidimos servir a Jeová",
+      "papel": "leitor",
+      "quem": "Wellington Passos",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Pelos seus comentários, né?",
+      "papel": "dirigente",
+      "quem": "José Eduardo Silveira",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Isso, muito bem. Muito obrigado, Matheus Santos.",
+      "papel": "dirigente",
+      "quem": "José Eduardo Silveira",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Uma das suas táticas é tentar nos fazer duvidar",
+      "quem": "Matheus Santos",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Ele usa o disfarce de anjo de luz",
+      "quem": "Antônio Carlos Vizignani",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "E enquanto nós tiver o apoio de Jeová",
+      "quem": "Elza Almeida",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Então ele vai inovando a cada dia",
+      "quem": "José Carlos Caon",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Até quando profetizar mentiras",
+      "quem": "Fátima Oliveira",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "tenta impedir que as pessoas conheçam o nome de Deus, né",
+      "quem": "Monique Santos",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "E essa tática de Satanás não é nova",
+      "quem": "Glenda dos Santos",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Filho do homem veio comendo e bebendo",
+      "quem": "Vera Caon",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "O amor da mãe para com seu filho",
+      "quem": "Jailson Ferreira",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Então, Tiago 4:7 nos mostra",
+      "quem": "Catarina Ferreira",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "para Eva ele disse que Jeová tava sendo restritivo",
+      "quem": "Karina Fonseca",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Me convenceu, resgate",
+      "quem": "Jaqueline Brandão",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Muitas religiões ensinam a Trindade",
+      "quem": "Diogo Bezerra",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Grandioso Deus, nosso Criador amoroso",
+      "papel": "oração final",
+      "quem": "Ademir Baldino",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "Uma outra coisa que é muito importante nós fazermos é seguirmos o exemplo dos bereanos",
+      "duvida_com": "Daniel",
+      "fonte": "texto"
+    },
+    {
+      "ancora": "então temos que ter muito cuidado e não abaixar a guarda",
+      "duvida_com": "Marcos Oliveira",
+      "fonte": "texto"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+"""Integração do motor de estrutura no Escriba (app.atribuicao + review).
+
+Garante que a cola funciona: o resultado do motor vira segmentos rotulados por
+pessoa, o nomes_auto casa com os rótulos de exibição, e review.segments_for
+prefere a atribuição quando ela existe. O acerto da NOMEAÇÃO em si é coberto por
+tests/estrutura (gabaritos do Eduardo).
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app import atribuicao, config, jobs, review  # noqa: E402
+from app.engines.base import CORO_LABEL, Segment  # noqa: E402
+from app.estrutura import analisar  # noqa: E402
+
+DADOS = ROOT / "tests/estrutura/dados"
+sys.path.insert(0, str(ROOT / "tests/estrutura"))
+from ler_srt_motor import ler_srt  # noqa: E402
+
+LISTA = json.loads((DADOS / "lista_irmaos.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def dados(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    (tmp_path / "jobs").mkdir()
+    (tmp_path / "nomes").mkdir()
+    (tmp_path / "nomes" / "nomes.json").write_text(
+        json.dumps(LISTA, ensure_ascii=False), encoding="utf-8")
+    return tmp_path
+
+
+def _atrib():
+    segs = ler_srt(DADOS / "10-10-2026_transcricao.srt")
+    papeis = {"presidente": "Rinaldo Santos", "orador": "Ademir Baldino",
+              "dirigente": "José Eduardo Silveira", "leitor": "Wellington Passos"}
+    return analisar(segs, LISTA, papeis=papeis).como_dict()
+
+
+def test_segmentos_e_nomes_auto_casam():
+    atrib = _atrib()
+    segs = atribuicao.segmentos(atrib)
+    auto = atribuicao.nomes_auto(atrib, segs)
+    assert len(segs) == len(atrib["falas"])
+    pessoas = {s.speaker for s in segs if s.speaker != CORO_LABEL}
+    # um rótulo "Falante N" por pessoa, todos com nome e fonte
+    assert len(auto) == len(pessoas)
+    assert all(k.startswith("Falante ") for k in auto)
+    assert all(v["nome"] and v["fonte"] for v in auto.values())
+    # os papéis principais foram achados
+    fontes = {v["fonte"] for v in auto.values()}
+    assert {"presidente", "orador", "dirigente", "leitor"} <= fontes
+
+
+def test_segments_for_prefere_atribuicao(dados):
+    atrib = _atrib()
+    job = jobs.new_job(filename="10-10.mp3", engine="assemblyai", language="pt",
+                       min_speakers=None, max_speakers=None, want_summary=False,
+                       participants=[])
+    job.nomes_auto = atribuicao.nomes_auto(atrib)
+    job.save()
+    job.path(atribuicao.ATRIB_FILE).write_text(
+        json.dumps(atrib, ensure_ascii=False), encoding="utf-8")
+    # segmentos.json cru diferente (um cluster só): a atribuição deve vencer
+    review.save_raw(job, [Segment(0.0, 1.0, "A", "qualquer coisa")])
+
+    job = jobs.load(job.id)
+    segs = review.segments_for(job)
+    assert len(segs) == len(atrib["falas"])          # veio da atribuição, não do cru
+    names = review.names_for(job, segs)
+    assert "José Eduardo Silveira" in names.values()
+    assert "Ademir Baldino" in names.values()
+
+
+def test_rodar_sem_lista_retorna_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)       # sem nomes/nomes.json
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    (tmp_path / "jobs").mkdir()
+
+    class J:
+        meeting: dict = {}
+    assert atribuicao.rodar(J(), [Segment(0.0, 1.0, "A", "oi")]) is None

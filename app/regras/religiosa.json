@@ -1,0 +1,360 @@
+{
+  "_leia": "REGRAS da reunião religiosa. Este é o ÚNICO lugar de ajuste pontual: trocar uma frase, acrescentar um jeito novo de chamar, mudar um limite. O motor (estrutura/*.py) lê daqui e não deve ser editado para esse tipo de ajuste. {NOME} vira o grupo do nome (palavras com inicial maiúscula). Padrões em regex Python; (?i:...) liga maiúsc./minúsc. só naquele trecho.",
+  "versao": 1,
+  "tipo_reuniao": {
+    "fim_de_semana": [
+      "(?i:discurso\\s+(?:p[úu]blico\\s+)?com\\s+o\\s+(?:seguinte\\s+)?tema)",
+      "(?i:irm[ãa]o\\s+orador)",
+      "(?i:estudo\\s+d[ae]\\s+(?:revista\\s+)?(?:a\\s+)?sentinela)"
+    ],
+    "meio_de_semana": [
+      "(?i:tesouros\\s+da\\s+palavra)",
+      "(?i:j[óo]ias\\s+espirituais)",
+      "(?i:nossa\\s+vida\\s+crist[ãa])",
+      "(?i:estudo\\s+b[íi]blico\\s+de\\s+congrega)",
+      "(?i:fa[çc]a\\s+seu\\s+melhor\\s+no\\s+minist)"
+    ]
+  },
+  "eventos": {
+    "abertura": [
+      "(?i:boa\\s+noite|bom\\s+dia|boa\\s+tarde|boas[- ]vindas|vamos\\s+(?:nos\\s+|se\\s+)?acomodando|dentro\\s+de\\s+(?:alguns\\s+instantes|um\\s+minuto|1\\s+minuto)|ocupar\\s+(?:os\\s+seus\\s+)?lugares)"
+    ],
+    "cantico": [
+      "(?i:c[âa]ntic[oa]\\s+(?:[ée]\\s+)?(?:o\\s+)?(?:de\\s+)?(?:n[úu]mero|n[ºo°]\\.?)\\s*)(?P<num>\\d{1,3})",
+      "(?i:entoando\\s+o\\s+c[âa]ntico\\s+)(?P<num>\\d{1,3})",
+      "(?i:c[âa]ntico\\s+)(?P<num>\\d{1,3})(?=[\\s.,?])"
+    ],
+    "oracao_invocacao": [
+      "^\\s*(?i:santo|grandioso|querido|amoroso|nosso\\s+pai|pai\\s+celestial|jeov[áa],|senhor\\s+jeov[áa]|criador)",
+      "(?i:toda\\s+(?:honra|gl[óo]ria))"
+    ],
+    "amem": [
+      "(?i:\\bam[ée]m\\b)"
+    ],
+    "anuncio_orador": [
+      "(?i:irm[ãa]o\\s+orador,?\\s+(?:o\\s+)?(?:irm[ãa]o\\s+)?){NOME}",
+      "(?i:orador,?\\s+(?:o\\s+)?irm[ãa]o\\s+){NOME}",
+      "(?i:boas[- ]vindas\\s+(?:tamb[ée]m\\s+)?ao\\s+irm[ãa]o\\s+){NOME}(?=[^.]{0,80}(?i:discurso|orador))"
+    ],
+    "tema_discurso": [
+      "(?i:discurso\\s+(?:p[úu]blico\\s+)?com\\s+o\\s+(?:seguinte\\s+)?tema|temos\\s+um\\s+discurso|o\\s+tema\\s+do\\s+discurso)"
+    ],
+    "fim_discurso": [
+      "(?i:obrigad[oa],?\\s+(?:irm[ãa]o\\s+)?)(?P<nome>[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçüñ]+)?[^.]{0,40}(?i:excelente|discurso|proferimento|palestra|procedimento)"
+    ],
+    "convite_dirigente": [
+      "(?i:sentinela[^.]{0,80}convidamos\\s+o\\s+(?:nosso\\s+)?irm[ãa]o\\s+){NOME}",
+      "(?i:convidamos\\s+o\\s+(?:nosso\\s+)?irm[ãa]o\\s+){NOME}(?=[^.]{0,60}(?i:sentinela|dirigir|estudo))",
+      "(?i:dirigente(?:\\s+d[ae]\\s+(?:a\\s+)?sentinela)?,?\\s+(?:o\\s+)?(?:irm[ãa]o\\s+)?){NOME}"
+    ],
+    "leitor": [
+      "(?i:leitor,?\\s+(?:o\\s+)?(?:irm[ãa]o\\s+)?){NOME}",
+      "(?i:irm[ãa]o\\s+){NOME}(?=\\s+vai\\s+nos\\s+auxiliar\\s+com\\s+a\\s+leitura)",
+      "(?i:quem\\s+vai\\s+fazer\\s+(?:para\\s+n[óo]s\\s+)?(?:essa\\s+|a\\s+)?leitura\\s+(?:ser[áa]|[ée])\\s+o\\s+(?:nosso\\s+)?irm[ãa]o\\s+){NOME}",
+      "(?i:convidado\\s+para\\s+hoje,?\\s+(?:o\\s+)?irm[ãa]o\\s+){NOME}",
+      "(?i:obrigad[oa],?\\s+(?:irm[ãa]o\\s+)?){NOME}(?=,?\\s+(?i:pela\\s+sua\\s+(?:excelente\\s+)?leitura|pela\\s+excelente\\s+leitura|excelente\\s+leitura))"
+    ],
+    "oracao_designada": [
+      "(?i:irm[ãa]o\\s+){NOME}(?=\\s+(?i:nos\\s+represent|vai\\s+nos\\s+represent|far[áa]\\s+a\\s+ora))",
+      "(?i:convidamos\\s+o\\s+(?:nosso\\s+)?irm[ãa]o\\s+){NOME}(?=\\s+(?i:para\\s+(?:nos\\s+represent|fazer\\s+a\\s+ora)))"
+    ],
+    "encerramento": [
+      "(?i:chegamos\\s+ao\\s+(?:final|fim)|vamos\\s+encerrar|queremos\\s+encerrar|encerrar\\s+(?:o\\s+nosso\\s+estudo|de\\s+modo|a\\s+nossa\\s+reuni))"
+    ],
+    "chamada": [
+      {
+        "padrao": "(?<!\\bdo\\s)(?<!\\bda\\s)(?<!\\bde\\s)(?<!\\bao\\s)(?<!\\bpelo\\s)(?<!\\bpela\\s)(?<!\\bcom\\s)(?<!\\bnosso\\s)(?<!\\bnossa\\s)(?<!\\bpara\\so\\s)(?<!\\bque\\so\\s)(?<!\\bque\\sa\\s)(?i:\\b(?:irm[ãa]o?|irm[ãa]s|dona)\\s+){NOME}(?=\\s*(?:[,.?!]|$|(?i:por\\s+favor|por\\s+gentileza|pelo\\s+zoom|ainda|l[áa]\\s+no|aqui)))",
+        "forca": "forte"
+      },
+      {
+        "padrao": "(?:^|[,.?!]\\s*|(?i:\\b(?:o|a)\\s+)){NOME}(?=\\s*,?\\s*(?i:por\\s+favor|por\\s+gentileza))",
+        "forca": "forte"
+      },
+      {
+        "padrao": "(?:^|[.?!]\\s+)(?i:(?:e|o|a)\\s+)?{NOME}(?=\\s*,?\\s*(?i:né\\s*)?\\?)",
+        "forca": "media"
+      },
+      {
+        "padrao": ",\\s*(?i:(?:e|o|a)\\s+)?{NOME}(?=\\s*\\?)",
+        "forca": "forte"
+      },
+      {
+        "padrao": "(?i:\\b(?:para|pro|pra|no|na|aí\\s+no|aí\\s+na)\\s+(?:o\\s+|a\\s+)?){NOME}(?=\\s*[.!]?\\s*$)",
+        "forca": "fraca"
+      },
+      {
+        "padrao": "^\\s*(?i:(?:o|a)\\s+)?{NOME}\\s*,\\s+(?=\\S)",
+        "forca": "media"
+      },
+      {
+        "padrao": "^\\s*{NOME}\\s*[.?!]?\\s*$",
+        "forca": "media"
+      },
+      {
+        "padrao": "(?i:por\\s+favor|por\\s+gentileza),?\\s+(?i:(?:irm[ãa]o?|dona)\\s+)?{NOME}(?=\\s*[.!?]?\\s*$)",
+        "forca": "forte"
+      },
+      {
+        "padrao": "(?i:\\b(?:é\\s+)?(?:o|a)\\s+){NOME}(?=\\s*,?\\s*(?i:né)\\s*\\?)",
+        "forca": "media"
+      },
+      {
+        "padrao": "(?:^|[,.?!]\\s*|(?i:\\b(?:o|a)\\s+)){NOME}(?=\\s*,?\\s*(?i:aqui|ali|l[áa]\\s+(?:no\\s+fundo|atr[áa]s|na\\s+frente)|aqui\\s+na\\s+frente)\\b)",
+        "forca": "media"
+      },
+      {
+        "padrao": "^\\s*(?i:o|a)\\s+{NOME}\\s*[.?!]",
+        "forca": "forte"
+      }
+    ],
+    "agradecimento": [
+      {
+        "padrao": "(?i:obrigad[oa](?:\\s+tamb[ée]m)?,?\\s+(?:(?:irm[ãa]o?|dona|senhor[a]?)\\s+)?){NOME}",
+        "forca": "forte"
+      },
+      {
+        "padrao": "(?i:muito\\s+bem,?\\s+(?:dona|irm[ãa]o?)\\s+){NOME}",
+        "forca": "forte"
+      }
+    ],
+    "paragrafo": [
+      "(?i:\\bpar[áa]grafo\\s+\\d+)",
+      "(?i:\\bvamos\\s+(?:ao|ver\\s+o|para\\s+o)\\s+\\d{1,2}\\b)",
+      "(?i:\\bprosseguir[,.]?\\s+(?:o\\s+)?(?:par[áa]grafo\\s+)?\\d{1,2}\\b)",
+      "(?i:vamos\\s+iniciar\\s+lendo)",
+      "(?i:[úu]ltimo\\s+par[áa]grafo)",
+      "^\\s*\\d{1,2}\\s*[.º°]?\\s*$",
+      "^\\s*\\d{1,2}\\s*[.º°:]\\s+(?=\\S)",
+      "(?i:subt[íi]tulo)"
+    ],
+    "pergunta": [
+      "(?i:\\bpergunta\\s+(?:do\\s+)?\\d+)",
+      "(?i:temos\\s+(?:a\\s+)?(?:\\d+|tr[êe]s|duas)\\s+perguntas)",
+      "(?i:partindo\\s+para\\s+a|\\b(?:primeira|segunda|terceira|pr[óo]xima|[úu]ltima|outra)\\s+pergunta)"
+    ],
+    "designacao": [
+      "(?i:quem\\s+vai\\s+fazer|vai\\s+ser\\s+feita\\s+pel[oa]|ser[áa]\\s+feita\\s+pel[oa]|convidamos\\s+o\\s+(?:nosso\\s+)?irm[ãa]o|quem\\s+vai\\s+(?:dirigir|ler)|dirigir\\s+[ée]\\s+o)"
+    ],
+    "fecha_parte": [
+      "(?i:pela\\s+(?:condu[çc][ãa]o|parte|leitura|dirig[êe]ncia)|parab[ée]ns\\s+(?:pela|a[íi]\\s+pela)\\s+parte|cumprir\\s+(?:sua|a)\\s+designa[çc][ãa]o|parab[ée]ns\\s+pela\\s+condu)",
+      "(?i:parte\\s+(?:de\\s+)?n[úu]mero\\s+\\d+|vamos\\s+(?:passar|mudar)\\s+(?:para|de))"
+    ],
+    "anuncios": [
+      "(?i:\\bgrupo\\s+\\d+\\b)",
+      "(?i:temos\\s+(?:tr[êe]s|dois|alguns)\\s+an[úu]ncios|an[úu]ncios?\\s+para\\s+(?:dar|a\\s+congrega))",
+      "(?i:relat[óo]rio\\s+financeiro)"
+    ],
+    "recapitulacao": [
+      "(?i:tirar\\s+de\\s+proveito\\s+da\\s+reuni|destaques?\\s+dessa\\s+reuni|o\\s+que\\s+(?:os\\s+irm[ãa]os|voc[êe]s)\\s+(?:puderam|acharam))"
+    ],
+    "apresentacao": [
+      "^\\s*(?i:(?:[ée]|eu\\s+sou|sou|aqui\\s+[ée])\\s+(?:a\\s+|o\\s+)?(?:irm[ãa]o?\\s+)?){NOME}\\s*[.!]?\\s*$"
+    ]
+  },
+  "partes_meio_de_semana": [
+    {
+      "id": "tesouros",
+      "padrao": "(?i:tesouros\\s+da\\s+palavra)",
+      "modo": "discurso"
+    },
+    {
+      "id": "joias",
+      "padrao": "(?i:j[óo]ias\\s+espirituais)",
+      "modo": "participacao"
+    },
+    {
+      "id": "leitura_biblia",
+      "padrao": "(?i:leitura\\s+da\\s+b[íi]blia|essa\\s+leitura)",
+      "modo": "leitura"
+    },
+    {
+      "id": "ministerio",
+      "padrao": "(?i:iniciando\\s+conversas|cultivando\\s+o\\s+interesse|fazendo\\s+disc[íi]pulos|de\\s+casa\\s+em\\s+casa|testemunho\\s+informal|explicando\\s+suas\\s+cren[çc]as)",
+      "modo": "demonstracao"
+    },
+    {
+      "id": "consideracao",
+      "padrao": "(?i:o\\s+que\\s+voc[êe]\\s+diria|considera[çc][ãa]o)",
+      "modo": "participacao"
+    },
+    {
+      "id": "vida_crista",
+      "padrao": "(?i:necessidades\\s+locais|nossa\\s+vida\\s+crist[ãa]|discurso)",
+      "modo": "discurso"
+    },
+    {
+      "id": "estudo_biblico",
+      "padrao": "(?i:estudo\\s+b[íi]blico\\s+de\\s+congrega)",
+      "modo": "estudo"
+    }
+  ],
+  "nao_e_nome": [
+    "Jeová",
+    "Jehová",
+    "Yahuá",
+    "Deus",
+    "Jesus",
+    "Cristo",
+    "Senhor",
+    "Pai",
+    "Filho",
+    "Espírito",
+    "Santo",
+    "Satanás",
+    "Diabo",
+    "Bíblia",
+    "Sentinela",
+    "Zoom",
+    "Reino",
+    "Salão",
+    "Eva",
+    "Adão",
+    "Jó",
+    "Moisés",
+    "Davi",
+    "Josué",
+    "Caleb",
+    "Calebe",
+    "Baal",
+    "Egito",
+    "Judá",
+    "Israel",
+    "Babilônia",
+    "Jerusalém",
+    "Canaã",
+    "Hebron",
+    "Cades",
+    "Jeremias",
+    "Joanã",
+    "Gedalias",
+    "Ismael",
+    "Baruque",
+    "Gênesis",
+    "Êxodo",
+    "Números",
+    "Deuteronômio",
+    "Salmo",
+    "Salmos",
+    "Provérbios",
+    "Isaías",
+    "Hebreus",
+    "Coríntios",
+    "Atos",
+    "Romanos",
+    "Malaquias",
+    "Apocalipse",
+    "Colossenses",
+    "Tessalonicenses",
+    "Isso",
+    "Então",
+    "Obrigado",
+    "Obrigada",
+    "Muito",
+    "Agora",
+    "Ainda",
+    "Também",
+    "Mas",
+    "Por",
+    "Para",
+    "Que",
+    "Qual",
+    "Quem",
+    "Como",
+    "Onde",
+    "Porque",
+    "Sim",
+    "Não",
+    "Bem",
+    "Bom",
+    "Boa",
+    "Ótimo",
+    "Excelente",
+    "Exatamente",
+    "Vamos",
+    "Tem",
+    "Olha",
+    "Irmã",
+    "Irmão",
+    "Irmãos",
+    "Irmãs",
+    "Dona",
+    "Parabéns",
+    "Amém"
+  ],
+  "livros_com_nome_de_pessoa": [
+    "João",
+    "Mateus",
+    "Pedro",
+    "Lucas",
+    "Marcos",
+    "Daniel",
+    "Paulo",
+    "Tiago",
+    "Timóteo",
+    "Tito"
+  ],
+  "limites": {
+    "cantico_min_seg": 40,
+    "cantico_pausa_fim_seg": 4.0,
+    "cantico_max_seg": 330,
+    "discurso_min_seg": 600,
+    "cabeca_max_palavras": 8,
+    "resto_min_palavras": 8,
+    "leitura_min_palavras": 20,
+    "voz_condutor_min_segmentos": 3,
+    "voz_condutor_fracao": 0.25,
+    "retorno_max_palavras": 5,
+    "fala_condutor_curta_max_palavras": 14,
+    "leitura_por_voz_min_palavras": 50,
+    "leitura_por_voz_fracao": 0.6,
+    "entre_condutor_max_palavras": 5,
+    "resto_chamada_min_palavras": 15
+  },
+  "palavras_retorno": [
+    "isso",
+    "mesmo",
+    "muito",
+    "bem",
+    "bom",
+    "boa",
+    "exatamente",
+    "exato",
+    "perfeito",
+    "correto",
+    "ótimo",
+    "otimo",
+    "excelente",
+    "obrigado",
+    "obrigada",
+    "tá",
+    "ta",
+    "lembrado",
+    "sem",
+    "dúvida",
+    "duvida",
+    "como",
+    "o",
+    "quê",
+    "que",
+    "vamos",
+    "ver",
+    "né",
+    "é",
+    "irmã",
+    "irmão",
+    "irmãos",
+    "certo",
+    "verdade",
+    "sim",
+    "pois",
+    "também",
+    "por",
+    "favor",
+    "gentileza"
+  ],
+  "_ajustes": [
+    "2026-10-15 · motor novo: regras iniciais tiradas das reuniões de 10-10 (fim de semana) e 13-10 (meio de semana)",
+    "2026-10-15 · chamada ', Nome?' no meio da frase vale como forte (ex.: 'né, Alberto?'); 'Nome, né?' no começo da frase continua média",
+    "2026-10-16 · causa H item 52/53: 'Tem' entra em nao_e_nome — a 1ª palavra do comentário ('obrigado Marcos, Tem que ter...') vazava para o nome ('Marcos Tem'). Gabarito 10-10-local prova."
+  ]
+}

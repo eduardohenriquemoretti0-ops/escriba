@@ -227,7 +227,7 @@ def _participant_names(job: jobs.Job) -> list[str]:
         return list(job.participants)
     # "Em coro" e "[?]" não são pessoas: não assinam
     named = [n for n in job.speakers if not re.match(r"^Falante \d+$", n)
-             and n != "Em coro" and not n.startswith("[?]")]
+             and n not in ("Em coro", "(fora da reunião)") and not n.startswith("[?]")]
     return named
 
 

@@ -353,3 +353,23 @@ def test_participante_vence_grafia_da_lista_na_conversa():
             _seg(8, "A", "Valeu, Fernando."), _seg(12, "B", "Até mais.")]
     nomes = infer(segs, ["Eduardo Moretti", "Fernando TopVigia"], irmaos=lista)
     assert nomes["B"][0] == "Fernando TopVigia"
+
+
+def test_palavra_comum_com_interrogacao_nao_tira_o_nome_do_interlocutor():
+    # 2026-10-12, prova real: "Entendeu?" 3× virou "chamada" de um nome e
+    # venceu os vocativos "…, Fernando." (palavras com o nome certo 97,9% -> 0%)
+    segs = [_seg(0, "A", "Vamos fazer o seguinte, Fernando."), _seg(4, "B", "Pode ser."),
+            _seg(8, "A", "Eu falei com o cliente. Entendeu?"), _seg(12, "B", "Sim."),
+            _seg(16, "A", "Começa amanhã. Entendeu?"), _seg(20, "B", "Certo."),
+            _seg(24, "A", "Ué, por quê? Entendeu?"), _seg(28, "B", "Tá."),
+            _seg(32, "A", "Então fechou, Fernando."), _seg(36, "B", "Fechou."),
+            _seg(40, "A", "Valeu, Fernando."), _seg(44, "B", "Boa noite.")]
+    nomes = infer(segs, ["Eduardo Moretti", "Fernando TopVigia"])
+    assert nomes["B"][0] == "Fernando TopVigia"
+    assert all(n != "Entendeu" for n, _, _ in nomes.values())
+
+
+def test_chamada_com_artigo_no_fim_da_pergunta():
+    from app.nomes import eventos_do_texto
+    assert ("chamada", "Michel") in eventos_do_texto("E informou o Michel?")
+    assert eventos_do_texto("Você já leu a Bíblia?") == []

@@ -99,6 +99,39 @@ def _split_names(raw: str) -> list[str]:
     return review.clean_participants(re.split(r"[\n;,]+", raw or ""))
 
 
+# Tipo escolhido no formulário -> (perfil do motor, tipo de reunião religiosa).
+_PERFIS_FORM = {
+    "religiosa": ("religiosa", None),
+    "religiosa_fim_de_semana": ("religiosa", "fim_de_semana"),
+    "religiosa_meio_de_semana": ("religiosa", "meio_de_semana"),
+    "negocios": ("negocios", None),
+    "conversa": ("conversa", None),
+    "monologo": ("monologo", None),
+}
+
+
+def _programa(raw: str) -> list[dict]:
+    """Partes do programa vindas do formulário (JSON): [{papel, rotulo, nomes}].
+    Entrada inválida vira lista vazia: o programa é opcional e não barra o envio."""
+    try:
+        itens = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    if not isinstance(itens, list):
+        return []
+    out = []
+    for it in itens[:60]:
+        if not isinstance(it, dict):
+            continue
+        papel = re.sub(r"[^a-z0-9_]", "", str(it.get("papel", "")).lower())[:40]
+        nomes = [review.clean_name(str(n)) for n in (it.get("nomes") or [])[:10]]
+        nomes = [n for n in nomes if n]
+        if papel and nomes:
+            out.append({"papel": papel, "rotulo": str(it.get("rotulo", ""))[:80],
+                        "nomes": nomes})
+    return out
+
+
 def _file_for(job: jobs.Job, kind: str) -> tuple[Path, str, str]:
     """(caminho, mime, nome de download) — gera o PDF se for o caso."""
     stem = Path(job.filename).stem
@@ -162,6 +195,12 @@ async def create_job(
     max_speakers: Optional[int] = Form(None),
     want_summary: bool = Form(False),
     participants: str = Form(""),
+    presidente: str = Form(""),
+    orador: str = Form(""),
+    dirigente: str = Form(""),
+    leitor: str = Form(""),
+    perfil: str = Form(""),
+    programa: str = Form(""),
 ):
     try:
         ext = media.validate_extension(file.filename or "")
@@ -176,6 +215,14 @@ async def create_job(
             detail="O WhisperX não está instalado neste computador (exige PyTorch "
                    "e GPU NVIDIA de 8 GB+). Use o motor Local, que funciona offline.")
 
+    # Programa por tipo de reunião (partes do meio de semana, condutor, pessoas...).
+    # Cada nome vira um papel "papel", "papel_2", ...; os nomes também entram nos
+    # participantes, para o vocabulário e a nomeação das vozes.
+    partes = _programa(programa)
+    nomes_programa = [n for p in partes for n in p["nomes"]]
+    lista_part = _split_names(participants)
+    lista_part += [n for n in dict.fromkeys(nomes_programa) if n not in lista_part]
+
     job = jobs.new_job(
         filename=file.filename or f"arquivo{ext}",
         engine=engine,
@@ -183,8 +230,29 @@ async def create_job(
         min_speakers=min_speakers or None,
         max_speakers=max_speakers or None,
         want_summary=want_summary,
-        participants=_split_names(participants),
+        participants=lista_part,
     )
+
+    # Cadastro da reunião: papéis (opcionais) e tipo forçado (opcional). O papel
+    # informado vale como está e orienta o motor de estrutura (reunião religiosa).
+    papeis = {papel: review.clean_name(valor) for papel, valor in
+              (("presidente", presidente), ("orador", orador),
+               ("dirigente", dirigente), ("leitor", leitor)) if review.clean_name(valor)}
+    for p in partes:
+        for i, nome in enumerate(p["nomes"]):
+            papeis.setdefault(p["papel"] if i == 0 else f"{p['papel']}_{i + 1}", nome)
+    meeting: dict = {}
+    if papeis:
+        meeting["papeis"] = papeis
+    if partes:
+        meeting["programa"] = partes
+    if perfil in _PERFIS_FORM:
+        meeting["perfil"], tipo_reuniao = _PERFIS_FORM[perfil]
+        if tipo_reuniao:
+            meeting["tipo_reuniao"] = tipo_reuniao
+    if meeting:
+        job.meeting = meeting
+        job.save()
 
     dest = job.path(f"original{ext}")
     size = 0

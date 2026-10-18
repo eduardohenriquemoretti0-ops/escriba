@@ -415,3 +415,128 @@ def _smooth_short(sentences: list[Sentence]) -> None:
 def speaker_label(idx: int) -> str:
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return letters[idx] if idx < len(letters) else f"S{idx + 1}"
+
+
+# --------------------------------------------------------------------------
+# 6) Falantes vindos do pyannote (quando a máquina aguenta)
+# --------------------------------------------------------------------------
+# Trecho de outro falante dentro de uma frase só vira frase própria se tiver
+# pelo menos isto; menor que isso é ruído da fronteira e fica com o vizinho.
+CORTE_MIN_SECONDS = 1.0
+CORTE_MIN_WORDS = 3
+_VIZINHO_MAX_SECONDS = 1.0   # palavra fora de qualquer turno: turno mais perto
+
+
+def _falante_da_palavra(w: Word, turnos: Sequence[tuple[float, float, str]],
+                        ini: int) -> tuple[Optional[str], int]:
+    """Falante com maior sobreposição com a palavra. `ini` avança junto
+    (turnos e palavras estão em ordem), então o custo total é linear."""
+    while ini < len(turnos) and turnos[ini][1] < w.start - _VIZINHO_MAX_SECONDS:
+        ini += 1
+    melhor, sob, perto, dist = None, 0.0, None, _VIZINHO_MAX_SECONDS
+    j = ini
+    while j < len(turnos) and turnos[j][0] <= w.end + _VIZINHO_MAX_SECONDS:
+        a, b, spk = turnos[j]
+        s = min(b, w.end) - max(a, w.start)
+        if s > sob:
+            melhor, sob = spk, s
+        d = max(a - w.end, w.start - b, 0.0)
+        if d < dist:
+            perto, dist = spk, d
+        j += 1
+    return (melhor or perto), ini
+
+
+def _corridas(sent: Sentence, spks: list[Optional[str]]) -> list[tuple[str, list[Word]]]:
+    """Palavras da frase agrupadas por falante; corrida curta junta à vizinha."""
+    runs: list[list] = []
+    for w, s in zip(sent.words, spks):
+        if runs and (s is None or s == runs[-1][0]):
+            runs[-1][1].append(w)
+        else:
+            runs.append([s, [w]])
+    if runs and runs[0][0] is None:          # começo sem turno: herda o seguinte
+        if len(runs) > 1:
+            runs[1][1][:0] = runs[0][1]
+            runs.pop(0)
+
+    def curta(r) -> bool:
+        ws = r[1]
+        return ws[-1].end - ws[0].start < CORTE_MIN_SECONDS or len(ws) < CORTE_MIN_WORDS
+
+    mudou = True
+    while mudou and len(runs) > 1:
+        mudou = False
+        for k, r in enumerate(runs):
+            if curta(r):
+                alvo = k - 1 if k > 0 else k + 1
+                if alvo < k:
+                    runs[alvo][1].extend(r[1])
+                else:
+                    runs[alvo][1][:0] = r[1]
+                runs.pop(k)
+                # vizinhas do mesmo falante viram uma corrida só
+                for m in range(len(runs) - 1, 0, -1):
+                    if runs[m][0] == runs[m - 1][0]:
+                        runs[m - 1][1].extend(runs[m][1])
+                        runs.pop(m)
+                mudou = True
+                break
+    return [(r[0], r[1]) for r in runs]
+
+
+def diarize_por_turnos(audio: np.ndarray, words: Sequence[Word],
+                       extractor: EmbeddingExtractor,
+                       turnos: Sequence[tuple[float, float, str]],
+                       ) -> tuple[list[Sentence], dict[int, np.ndarray]]:
+    """Igual a `diarize`, mas o falante vem dos turnos do pyannote.
+
+    As frases são as mesmas do caminho ONNX (pontuação/pausa); uma frase só é
+    partida quando o pyannote vê outro falante por >= CORTE_MIN_SECONDS e
+    CORTE_MIN_WORDS. A assinatura de voz continua sendo a do nosso modelo
+    (TitaNet/ERes2Net), para a memória de vozes e o estudo seguirem iguais."""
+    base = build_sentences(words)
+    if not base:
+        return [], {}
+    turnos = sorted(turnos)
+    ini = 0
+    sentences: list[Sentence] = []
+    rotulo_de: dict[str, int] = {}
+    for sent in base:
+        spks = []
+        for w in sent.words:
+            s, ini = _falante_da_palavra(w, turnos, ini)
+            spks.append(s)
+        for spk, ws in _corridas(sent, spks):
+            nova = Sentence(words=list(ws))
+            if spk is not None:
+                nova.speaker = rotulo_de.setdefault(spk, len(rotulo_de))
+            sentences.append(nova)
+    # frase sem turno nenhum por perto: fica com o falante anterior
+    prev = next((s.speaker for s in sentences if s.speaker >= 0), 0)
+    for s in sentences:
+        if s.speaker < 0:
+            s.speaker = prev
+        prev = s.speaker
+
+    # assinatura de voz por falante: média das frases longas (nosso modelo)
+    somas: dict[int, list[np.ndarray]] = {}
+    for s in sentences:
+        if s.duration >= MIN_EMBED_SECONDS:
+            try:
+                s.embedding = _embed_span(extractor, audio, s.start, s.end)
+            except Exception:  # noqa: BLE001 — trecho ruim para o modelo
+                continue
+            somas.setdefault(s.speaker, []).append(s.embedding)
+    centroids = {}
+    for j, vs in somas.items():
+        c = np.mean(vs, axis=0)
+        centroids[j] = c / (np.linalg.norm(c) + 1e-9)
+
+    # rótulos na ordem de aparição (A, B, C...), como no caminho ONNX
+    order: dict[int, int] = {}
+    for s in sentences:
+        order.setdefault(s.speaker, len(order))
+    for s in sentences:
+        s.speaker = order[s.speaker]
+    return sentences, {order[j]: c for j, c in centroids.items() if j in order}

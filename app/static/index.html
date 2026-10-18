@@ -209,6 +209,7 @@ function addParticipante(sel){
   linha.querySelector("input").focus();
 }
 
+
 async function carregarVozes(){
   try {
     const r = await fetch("/api/vozes");
@@ -301,6 +302,21 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
 }
 .part-linha button{background:none;border:none;color:var(--cinza);font-size:18px;padding:0 6px}
 .part-linha button:hover{color:var(--erro)}
+
+/* programa por tipo de reunião */
+.tipo-sec{flex-basis:100%;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.tipo-sec[hidden]{display:none}
+.prog-secao{flex-basis:100%;border-top:1px solid var(--linha);padding-top:10px}
+.prog-secao h4{margin:0 0 8px;font-size:13px;color:var(--papel);font-weight:600}
+.prog-partes{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+.prog-parte{display:grid;grid-template-columns:150px 1fr;gap:8px;align-items:start}
+.prog-parte .rot{font-size:12.5px;color:var(--cinza);padding-top:8px;display:flex;gap:6px;align-items:center}
+.prog-parte .rot button{background:none;border:none;color:var(--cinza);font-size:16px;padding:0 4px}
+.prog-parte .rot button:hover{color:var(--erro)}
+.prog-nomes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px}
+.prog-nomes .part-linha{flex:1 1 180px}
+.prog-nomes .mais{padding:5px 10px;font-size:12px}
+@media (max-width:560px){ .prog-parte{grid-template-columns:1fr} .prog-parte .rot{padding-top:0} }
 .spk .auto{display:block;font-size:11.5px;color:var(--ok);margin-top:3px}
 .spk .auto.duvida{color:var(--cinza)}
 .spk .auto .usar{background:none;color:var(--ok);border:1px solid var(--ok);border-radius:5px;
@@ -440,6 +456,90 @@ dialog::backdrop{background:rgba(5,12,16,.76)}
       <div class="part-lista" id="partUpload"></div>
       <button class="btn" type="button" id="btnAddPartUpload">+ Adicionar participante</button>
     </div>
+    <details class="campo larg" style="flex-basis:100%">
+      <summary>Tipo de Reunião (opcional)</summary>
+      <div class="opcoes" style="margin-top:8px">
+        <label class="campo">Tipo
+          <select id="perfil">
+            <option value="" selected>Detectar sozinho</option>
+            <option value="religiosa_fim_de_semana">Religiosa · fim de semana</option>
+            <option value="religiosa_meio_de_semana">Religiosa · meio de semana</option>
+            <option value="negocios">Reunião de negócios</option>
+            <option value="conversa">Conversa</option>
+            <option value="monologo">Monólogo</option>
+          </select>
+        </label>
+
+        <!-- fim de semana -->
+        <div class="tipo-sec" data-tipo="religiosa_fim_de_semana" hidden>
+          <label class="campo">Presidente
+            <input type="text" id="papelPresidente" placeholder="abre e fecha a reunião">
+          </label>
+          <label class="campo">Orador
+            <input type="text" id="papelOrador" placeholder="discurso público">
+          </label>
+          <label class="campo">Dirigente de A Sentinela
+            <input type="text" id="papelDirigente" placeholder="conduz o estudo">
+          </label>
+          <label class="campo">Leitor de A Sentinela
+            <input type="text" id="papelLeitor" placeholder="lê os parágrafos">
+          </label>
+        </div>
+
+        <!-- meio de semana -->
+        <div class="tipo-sec" data-tipo="religiosa_meio_de_semana" hidden>
+          <label class="campo">Presidente
+            <input type="text" id="mdsPresidente" placeholder="abre e fecha a reunião">
+          </label>
+          <div class="prog-secao">
+            <h4>Tesouros da Palavra de Deus</h4>
+            <div class="prog-partes" id="mdsTesouros"></div>
+          </div>
+          <div class="prog-secao">
+            <h4>Faça seu melhor no ministério</h4>
+            <div class="prog-partes" id="mdsMinisterio"></div>
+            <button class="btn" type="button" id="btnAddParteMin">+ Adicionar parte</button>
+          </div>
+          <div class="prog-secao">
+            <h4>Nossa vida cristã</h4>
+            <div class="prog-partes" id="mdsVidaCrista"></div>
+            <button class="btn" type="button" id="btnAddParteVida">+ Adicionar parte</button>
+          </div>
+          <label class="campo">Oração final
+            <input type="text" id="mdsOracao" placeholder="quem faz a oração">
+          </label>
+        </div>
+
+        <!-- negócios -->
+        <div class="tipo-sec" data-tipo="negocios" hidden>
+          <label class="campo">Condutor
+            <input type="text" id="negCondutor" placeholder="quem conduz a reunião">
+          </label>
+          <div class="campo larg">Participantes
+            <div class="prog-nomes" id="negParticipantes"></div>
+            <button class="btn" type="button" id="btnAddNegPart">+ Adicionar participantes</button>
+          </div>
+        </div>
+
+        <!-- conversa -->
+        <div class="tipo-sec" data-tipo="conversa" hidden>
+          <div class="campo larg">Pessoas na conversa
+            <div class="prog-nomes" id="convPessoas"></div>
+            <button class="btn" type="button" id="btnAddConvPessoa">+ Adicionar pessoa</button>
+          </div>
+        </div>
+
+        <!-- monólogo -->
+        <div class="tipo-sec" data-tipo="monologo" hidden>
+          <label class="campo">Quem está falando
+            <input type="text" id="monoFalante" placeholder="nome de quem fala">
+          </label>
+        </div>
+      </div>
+      <p class="dica">Escolha o tipo para informar os papéis. Isso reduz muito o
+      trabalho de conferência: o presidente não diz o próprio nome, e o orador
+      costuma ser visitante. Deixe em branco o que não souber.</p>
+    </details>
     <p class="dica">Antes de transcrever, o Escriba reconhece quantas vozes há na
     gravação e quais ele já conhece. Depois descobre os nomes pela conversa
     (quem é chamado pelo nome). Informar os participantes, com a grafia
@@ -774,6 +874,108 @@ function addParticipante(sel){
   linha.querySelector("input").focus();
 }
 
+/* ---------- programa por tipo de reunião ---------- */
+// Campo de nome do programa; removível quando foi acrescentado pelo botão.
+function campoNome(removivel, placeholder){
+  const d = document.createElement("div");
+  d.className = "part-linha";
+  d.innerHTML = `<input type="text" maxlength="80" list="listaVozesNomes"
+      placeholder="${placeholder || "Nome"}" aria-label="Nome">` +
+    (removivel ? `<button type="button" aria-label="Remover nome">×</button>` : "");
+  if (removivel) d.querySelector("button").addEventListener("click", () => d.remove());
+  return d;
+}
+// Lista de nomes com N campos fixos + botão para acrescentar outro.
+function listaNomes(box, fixos, rotuloBotao, placeholder){
+  for (let k = 0; k < fixos; k++) box.appendChild(campoNome(false, placeholder));
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "btn mais"; b.textContent = rotuloBotao || "+ nome";
+  b.addEventListener("click", () => {
+    const c = campoNome(true, placeholder);
+    box.insertBefore(c, b); c.querySelector("input").focus();
+  });
+  box.appendChild(b);
+}
+// Uma parte numerada do meio de semana: rótulo + nomes.
+function parteMds(sec, titulo, fixos, removivel){
+  const d = document.createElement("div");
+  d.className = "prog-parte"; d.dataset.sec = sec; d.dataset.titulo = titulo || "";
+  d.innerHTML = `<div class="rot"><span></span>` +
+    (removivel ? `<button type="button" aria-label="Remover parte">×</button>` : "") +
+    `</div><div class="prog-nomes"></div>`;
+  listaNomes(d.querySelector(".prog-nomes"), fixos, "+ nome");
+  if (removivel) d.querySelector(".rot button").addEventListener("click", () => {
+    d.remove(); numerarMds();
+  });
+  return d;
+}
+// Numeração contínua: Tesouros 1-3, depois Ministério, depois Vida cristã.
+function numerarMds(){
+  let n = 0;
+  document.querySelectorAll("#mdsTesouros .prog-parte, #mdsMinisterio .prog-parte, #mdsVidaCrista .prog-parte")
+    .forEach(p => {
+      n++; p.dataset.num = n;
+      p.querySelector(".rot span").textContent = `${n}. ${p.dataset.titulo || "Parte"}`;
+    });
+}
+function montarProgramaMds(){
+  const tes = $("#mdsTesouros"), min = $("#mdsMinisterio"), vida = $("#mdsVidaCrista");
+  tes.innerHTML = min.innerHTML = vida.innerHTML = "";
+  tes.appendChild(parteMds("tesouros", "Discurso", 1));
+  tes.appendChild(parteMds("tesouros", "Joias espirituais", 1));
+  tes.appendChild(parteMds("tesouros", "Leitura da Bíblia", 1));
+  // ministério: em dupla/trio (2 campos); a última costuma ser consideração (1 campo)
+  min.appendChild(parteMds("ministerio", "", 2));
+  min.appendChild(parteMds("ministerio", "", 2));
+  min.appendChild(parteMds("ministerio", "", 1));
+  vida.appendChild(parteMds("vida_crista", "", 1));
+  vida.appendChild(parteMds("vida_crista", "", 1));
+  numerarMds();
+}
+$("#btnAddParteMin").addEventListener("click", () => {
+  $("#mdsMinisterio").appendChild(parteMds("ministerio", "", 2, true)); numerarMds();
+});
+$("#btnAddParteVida").addEventListener("click", () => {
+  $("#mdsVidaCrista").appendChild(parteMds("vida_crista", "", 1, true)); numerarMds();
+});
+listaNomes($("#negParticipantes"), 1, "+ Adicionar participantes", "Nome do participante");
+listaNomes($("#convPessoas"), 1, "+ Adicionar pessoa", "Nome da pessoa");
+$("#btnAddNegPart").remove(); $("#btnAddConvPessoa").remove();
+montarProgramaMds();
+
+// Mostra só os campos do tipo escolhido.
+function mostrarTipo(){
+  const t = $("#perfil").value;
+  document.querySelectorAll(".tipo-sec").forEach(s => { s.hidden = s.dataset.tipo !== t; });
+}
+$("#perfil").addEventListener("change", mostrarTipo);
+mostrarTipo();
+
+const _nomesDe = el => [...el.querySelectorAll("input")].map(i => i.value.trim()).filter(Boolean);
+// Programa do tipo escolhido: [{papel, rotulo, nomes}] (só o que foi preenchido).
+function lerPrograma(){
+  const t = $("#perfil").value, out = [];
+  const add = (papel, rotulo, nomes) => { if (nomes.length) out.push({ papel, rotulo, nomes }); };
+  if (t === "religiosa_meio_de_semana") {
+    const slug = { "Discurso":"tesouros_discurso", "Joias espirituais":"joias_espirituais",
+                   "Leitura da Bíblia":"leitura_biblia" };
+    document.querySelectorAll("#mdsTesouros .prog-parte, #mdsMinisterio .prog-parte, #mdsVidaCrista .prog-parte")
+      .forEach(p => {
+        const papel = slug[p.dataset.titulo] || `${p.dataset.sec}_parte_${p.dataset.num}`;
+        add(papel, p.querySelector(".rot span").textContent, _nomesDe(p));
+      });
+    add("oracao_final", "Oração final", _nomesDe($("#mdsOracao").parentElement));
+  } else if (t === "negocios") {
+    add("condutor", "Condutor", _nomesDe($("#negCondutor").parentElement));
+    add("participante", "Participantes", _nomesDe($("#negParticipantes")));
+  } else if (t === "conversa") {
+    add("pessoa", "Pessoas", _nomesDe($("#convPessoas")));
+  } else if (t === "monologo") {
+    add("falante", "Quem está falando", _nomesDe($("#monoFalante").parentElement));
+  }
+  return out;
+}
+
 async function carregarVozes(){
   try {
     const r = await fetch("/api/vozes");
@@ -915,6 +1117,15 @@ function enviar(file){
   if (n) { fd.append("min_speakers", n); fd.append("max_speakers", n); }
   fd.append("want_summary", $("#ata").checked);
   fd.append("participants", lerParticipantes("#partUpload").join("\n"));
+  const tipo = $("#perfil").value;
+  const fds = tipo === "religiosa_fim_de_semana";
+  fd.append("perfil", tipo);
+  fd.append("presidente", (fds ? $("#papelPresidente")
+    : tipo === "religiosa_meio_de_semana" ? $("#mdsPresidente") : { value:"" }).value.trim());
+  fd.append("orador", fds ? $("#papelOrador").value.trim() : "");
+  fd.append("dirigente", fds ? $("#papelDirigente").value.trim() : "");
+  fd.append("leitor", fds ? $("#papelLeitor").value.trim() : "");
+  fd.append("programa", JSON.stringify(lerPrograma()));
 
   const box = $("#enviando");
   const fill = $("#barraFill");

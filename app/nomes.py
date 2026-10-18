@@ -19,7 +19,7 @@ from difflib import SequenceMatcher
 from typing import Iterable, Optional
 
 from . import irmaos as _irmaos
-from .engines.base import Segment
+from .engines.base import CORO_LABEL, Segment
 
 MIN_VOTES = 2.0          # votos mínimos para sugerir um nome
 NEXT_TURN_SECONDS = 15.0  # até quanto tempo depois a "resposta" ainda conta
@@ -63,7 +63,7 @@ _STOP_FOLD = {_fold(w) for w in _STOP}
 # Nomes sagrados e títulos que o Whisper escreve com maiúscula: não são pessoas
 # da reunião ("Jeová" virou sugestão de falante no salão).
 _SAGRADOS = {_fold(w) for w in ("jeová", "jeova", "jesus", "cristo", "satanás",
-                                "satanas", "espírito", "espirito")}
+                                "satanas", "espírito", "espirito", "bíblia", "biblia")}
 _COMUNS = {_fold(w) for w in (
     "como", "nós", "nos", "aqui", "agora", "depois", "também", "mas", "porque",
     "quando", "onde", "pra", "para", "uma", "uns", "isso", "esse", "essa", "aí",
@@ -73,13 +73,26 @@ _COMUNS = {_fold(w) for w in (
     "dirigente", "presidente", "leitor", "orador", "irmãos", "irmãs", "você",
     "voce", "vocês", "ele", "ela", "eles", "elas", "quem", "qual", "quais",
     "essa", "esse", "isso", "pessoal", "senhor", "senhora",
+    # conjunções/advérbios que o Whisper escreve com maiúscula depois de
+    # "obrigado"/ponto e viravam nome ("Obrigado. Que Jeová..." -> "Que")
+    "que", "pois", "sim", "nao", "não", "em", "coro", "dentre", "antes",
+    "pergunta", "resposta", "comentário", "comentario", "leitura", "cântico",
+    "cantico", "texto", "parte", "designação", "designacao",
+)}
+# Lugares, livros e povos bíblicos: o Whisper escreve com maiúscula no meio da
+# frase (nome próprio), mas não são pessoas da reunião ("fugir para o Egito"
+# virava o falante "Egito"; "Judá", "Babilônia", "Jeremias" idem).
+_LUGARES = {_fold(w) for w in (
+    "egito", "judá", "juda", "israel", "babilônia", "babilonia", "jerusalém",
+    "jerusalem", "roma", "betel", "jeremias", "ismael", "joanã", "joana",
+    "gedalias", "babilônios", "babilonios", "rafa",
 )}
 
 
 def _nao_e_nome(palavra: str) -> bool:
     """Palavra que nunca é nome de pessoa (stoplist, comuns, sagrados)."""
     k = _fold(palavra)
-    return k in _STOP_FOLD or k in _COMUNS or k in _SAGRADOS
+    return k in _STOP_FOLD or k in _COMUNS or k in _SAGRADOS or k in _LUGARES
 
 
 def _proper_nouns(segments: Iterable[Segment]) -> set[str]:
@@ -171,6 +184,8 @@ _CHAMADA_NOME = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*,\s*(?i:por favor|por 
 _CHAMADA_SOLTA = re.compile(rf"{_TITULO}\s+({_NC})\b")
 # "Rita? Então," — nome seguido de pergunta do dirigente
 _CHAMADA_QUESTAO = re.compile(rf"(?:^|[.!?…,]\s+)({_NC})\s*\?")
+# "E informou o Michel?" / "O Fernando?" — artigo + nome no fim da pergunta
+_CHAMADA_ARTIGO = re.compile(rf"(?:^|\s)(?i:o|a)\s+({_NC})\s*\?")
 # "Obrigado, irmão Fulano" / "Muito bem, Fulana" / "obrigado irmão Admir"
 _AGRADECIMENTO = re.compile(
     rf"(?i:muito obrigad[oa]|obrigad[oa]|muito bem|isso mesmo)\s*,?\s*"
@@ -206,6 +221,20 @@ def _resumo_motivos(motivos: list[str]) -> str:
     return ", ".join(f"{m} {n}×" for m, n in cont.items())
 
 
+def _limpa_nome(nome: str) -> str:
+    """Tira do começo e do fim as palavras que não são nome de pessoa.
+
+    O nome composto captura duas palavras ("Marques Agora"); a 2ª às vezes é
+    uma palavra comum ("Agora", "Pergunta") que não faz parte do nome. Sobra o
+    nome de verdade, ou "" se não restar nada."""
+    partes = nome.split()
+    while partes and _nao_e_nome(partes[-1]):
+        partes.pop()
+    while partes and _nao_e_nome(partes[0]):
+        partes.pop(0)
+    return " ".join(partes)
+
+
 def eventos_do_texto(texto: str) -> list[tuple[str, str]]:
     """(tipo, nome cru) de cada chamada e agradecimento num texto.
 
@@ -215,7 +244,8 @@ def eventos_do_texto(texto: str) -> list[tuple[str, str]]:
     achados: dict[int, tuple[str, str]] = {}
     for m in _AGRADECIMENTO.finditer(texto):
         achados.setdefault(m.start(1), ("agradecimento", m.group(1)))
-    for rx in (_CHAMADA_TITULO, _CHAMADA_TITULO_FINAL, _CHAMADA_NOME, _CHAMADA_QUESTAO):
+    for rx in (_CHAMADA_TITULO, _CHAMADA_TITULO_FINAL, _CHAMADA_NOME, _CHAMADA_QUESTAO,
+               _CHAMADA_ARTIGO):
         for m in rx.finditer(texto):
             achados.setdefault(m.start(1), ("chamada", m.group(1)))
     for m in _CHAMADA_SOLTA.finditer(texto):
@@ -224,13 +254,22 @@ def eventos_do_texto(texto: str) -> list[tuple[str, str]]:
         achados.setdefault(m.start(1), ("chamada", m.group(1)))
     saida = []
     for pos, (tipo, nome) in sorted(achados.items()):
-        if _nao_e_nome(nome.split()[0]):
+        nome = _limpa_nome(nome)                 # tira "Agora"/"Pergunta" etc. do nome
+        if not nome:
             continue
         frase = re.split(r"[.!?…]", texto[:pos])[-1]
         if _QUOTE.search(frase):
             continue                             # está citando outra pessoa
         saida.append((tipo, nome))
     return saida
+
+
+def _com_titulo_ou_pedido(texto: str, nome: str) -> bool:
+    """O nome vem depois de "irmão/irmã" ou junto de "por favor"/"por gentileza"?"""
+    n = re.escape(nome)
+    return bool(re.search(rf"{_TITULO}\s+{n}\b", texto)
+                or re.search(rf"(?i:por favor|por gentileza)\s*,?\s*{n}\b", texto)
+                or re.search(rf"\b{n}\s*,?\s*(?i:por favor|por gentileza)", texto))
 
 
 def _eventos_posicionais(segs: list[Segment]) -> list[tuple[str, int, str]]:
@@ -271,6 +310,114 @@ def dirigente_de(segs: list[Segment]) -> Optional[str]:
     return spk if n >= 2 else None
 
 
+def por_chamada(segments: list[Segment], entradas: Iterable = (),
+                participantes: Iterable[str] = (),
+                ) -> dict[str, tuple[str, str, bool]]:
+    """{rótulo_cru: (nome, motivo, está_na_lista)} pela CHAMADA/AGRADECIMENTO.
+
+    Regra do Eduardo: quando alguém é chamado ("convidamos o irmão Fulano",
+    "irmão Fulano, por favor") ou agradecido ("obrigado, irmão Fulano"), o nome
+    — com a grafia corrigida pela lista de irmãos — vai para a PARTE TODA: o
+    próximo falante diferente (chamada) ou o falante anterior (agradecimento).
+    Uma chamada clara basta; não há corte por margem de votos (ao contrário de
+    `infer`), para o nome não sumir. `está_na_lista` é False quando o nome não
+    casa com a lista nem com os participantes — aí vira dúvida (ouvir o trecho).
+    """
+    segs = [s for s in segments if s.text.strip()]
+    if not segs:
+        return {}
+    entradas = list(entradas)
+    parts = [p for p in participantes if p and p.strip()]
+    known: dict[str, str] = {}
+    for full in parts:
+        known.setdefault(_fold(full), full)
+        first = full.split()[0]
+        if len(first) >= 3:
+            known.setdefault(_fold(first), full)
+    trusted = dict(known)
+
+    eventos = []
+    for tipo, i, cru in _eventos_posicionais(segs):
+        nome = _resolve(cru, known, trusted, entradas) or cru
+        eventos.append((tipo, i, nome))
+
+    # Quem CONDUZ chama/passa a palavra muitas vezes (presidente, quem dirige
+    # joias, dirigente do estudo). Um condutor NÃO é nomeado por uma chamada
+    # solta que caiu de volta nele (o próximo falante depois da chamada às vezes
+    # é o próprio condutor): ele é nomeado pelo ANÚNCIO de quem preside.
+    chefe = presidente_reuniao(segs) or dirigente_de(segs)
+    faz = Counter(segs[i].speaker for tipo, i, _ in eventos if tipo == "chamada")
+    CONDUTOR_MIN = 3
+
+    def _peso(quem: str) -> int:
+        if chefe and quem == chefe:
+            return 3                      # anúncio de quem preside: mais forte
+        return 2 if faz.get(quem, 0) >= CONDUTOR_MIN else 1
+
+    pronunciou: dict[str, set] = defaultdict(set)
+    for tipo, i, nome in eventos:
+        pronunciou[nome].add(segs[i].speaker)
+
+    votos: dict[str, Counter] = defaultdict(Counter)
+    motivos: dict[tuple[str, str], str] = {}
+    anunciado: set[tuple[str, str]] = set()   # (alvo, nome) vindo de quem preside
+    for tipo, i, nome in eventos:
+        quem = segs[i].speaker
+        alvo = (_alvo_chamada(segs, i) if tipo == "chamada"
+                else _alvo_agradecimento(segs, i))
+        if alvo is None or alvo in pronunciou[nome]:
+            continue
+        votos[alvo][nome] += _peso(quem)
+        if chefe and quem == chefe:
+            anunciado.add((alvo, nome))
+        if (alvo, nome) not in motivos:
+            if tipo == "chamada":
+                motivos[(alvo, nome)] = ("anunciado por quem preside"
+                                         if chefe and quem == chefe
+                                         else "chamado pelo nome")
+            else:
+                motivos[(alvo, nome)] = "agradecido"
+
+    # 1 nome por cluster (maior voto) e 1 cluster por nome. Para um cluster
+    # CONDUTOR, só vale o nome que veio do anúncio de quem preside.
+    pares = sorted(((n, spk, nome) for spk, c in votos.items()
+                    for nome, n in c.items()), reverse=True)
+    out: dict[str, tuple[str, str, bool]] = {}
+    usados: set[str] = set()
+    for _, spk, nome in pares:
+        if spk in out or nome in usados:
+            continue
+        if (spk != chefe and faz.get(spk, 0) >= CONDUTOR_MIN
+                and (spk, nome) not in anunciado):
+            continue                      # condutor só é nomeado pelo anúncio
+        na_lista = bool(
+            (entradas and _irmaos.corrige_participante(nome, entradas) is not None)
+            or _participante_de(nome, parts) is not None)
+        out[spk] = (nome, motivos.get((spk, nome), "chamado pelo nome"), na_lista)
+        usados.add(nome)
+    return out
+
+
+def presidente_reuniao(segments: list[Segment]) -> Optional[str]:
+    """Rótulo cru de quem preside a reunião de meio de semana, ou None.
+
+    O presidente abre a reunião e anuncia/agradece as partes. Âncora segura:
+    o falante da PRIMEIRA fala que também está entre os dois que mais chamam e
+    agradecem no total. Se a primeira fala não for de um chamador frequente
+    (ex.: começou por cântico/oração), não arrisca e devolve None."""
+    segs = [s for s in segments if s.text.strip() and s.speaker != CORO_LABEL]
+    if not segs:
+        return None
+    primeiro = segs[0].speaker
+    cont = Counter(segs[i].speaker for _, i, _ in _eventos_posicionais(segs))
+    if not cont:
+        return None
+    top = [spk for spk, _ in cont.most_common(2)]
+    if primeiro in top and cont[primeiro] >= 2:
+        return primeiro
+    return None
+
+
 def infer(segments: list[Segment], candidates: Iterable[str] = (),
           exclude: Optional[set] = None,
           irmaos: Iterable = ()) -> dict[str, tuple[str, float, str]]:
@@ -304,8 +451,10 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
         if len(first) >= 3:
             known.setdefault(_fold(first), full)
     trusted = dict(known)                     # só nomes informados/conhecidos
-    for noun in _proper_nouns(segs):
+    proprios = _proper_nouns(segs)
+    for noun in proprios:
         known.setdefault(_fold(noun), noun)
+    proprios_fold = {_fold(n) for n in proprios}
 
     votes: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     reasons: dict[tuple[str, str], list[str]] = defaultdict(list)
@@ -329,8 +478,16 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
         crus = [corr[c] for c in crus]
     mapa = _unifica(crus, protegidos)
     nomes_evento = []
-    for (tipo, i, _), cru in zip(eventos, crus):
+    for (tipo, i, cru0), cru in zip(eventos, crus):
         nome = mapa[cru] if entradas else (_canonical(mapa[cru], known, trusted) or mapa[cru])
+        # Só vale nome com cara de nome: participante/voz conhecida, lista de
+        # irmãos, ou palavra que aparece com maiúscula no meio de frase. Na
+        # conversa de 2 pessoas, "Entendeu?" (3×) casava com a chamada "X?",
+        # valia 6 votos e tirava o nome do Fernando (palavras com nome certo
+        # 97,9% -> 0%).
+        if not (_resolve(cru0, {}, trusted, entradas) or _fold(cru0) in proprios_fold
+                or _fold(nome) in trusted or _com_titulo_ou_pedido(segs[i].text, cru0)):
+            continue
         nomes_evento.append((tipo, i, nome))
     dirigente = dirigente_de(segs)
     # quem pronuncia o nome numa chamada/agradecimento não pode receber esse nome

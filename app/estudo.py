@@ -752,12 +752,13 @@ def _exibe_sugestao(
     if mostrado and _irmaos.fold(mostrado[0])[:1] != _irmaos.fold(partes[0])[:1]:
         return DUVIDA
     evidencia = nm.parecido(cru) or nm.parecido(partes[0])
+    titulo = False
     if 0 <= pos < len(pal):
         ini = max(0, pos - (len(partes) - 1))
         antes = [_limpa(pal[j].texto) for j in range(max(0, ini - 4), ini)]
         depois = [_limpa(pal[j].texto) for j in range(pos + 1, min(len(pal), pos + 3))]
         if antes and antes[-1] in _TITULOS:
-            evidencia = True
+            evidencia = titulo = True
         if _APRESENTACAO.search(" ".join(antes)):
             evidencia = True
         if " ".join(antes[-2:]) in _POR_FAVOR_PALAVRAS or (
@@ -765,6 +766,10 @@ def _exibe_sugestao(
         ):
             evidencia = True
     if not evidencia:
+        return DUVIDA
+    if len(partes) > 1 and not titulo and not nm.parecido(partes[0]):
+        # nome composto sem título e sem 1º nome conhecido: o Whisper partiu
+        # um nome em dois ("né, Monja Ilson?" era o Jailson)
         return DUVIDA
     if len(partes) > 1 and len(mostrado) > 1 and not nm.parecido(partes[-1]):
         return f"{DUVIDA} {mostrado[0]}?"

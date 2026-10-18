@@ -31,10 +31,15 @@ PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 # "local"       -> 100% offline: Faster-Whisper + diarização ONNX (padrão)
 # "assemblyai"  -> API na nuvem (precisa de internet e chave)
 # "whisperx"    -> local com PyTorch + pyannote (GPU NVIDIA, instalação pesada)
-DEFAULT_ENGINE = os.getenv("ESCRIBA_ENGINE", "local")
+DEFAULT_ENGINE = os.getenv("ESCRIBA_ENGINE", "assemblyai")
 
 # --- AssemblyAI --------------------------------------------------------------
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
+# Sem nº de falantes informado, a AssemblyAI funde todo mundo em poucos clusters
+# (reunião de 34 pessoas virou 6). Quando o usuário não digita o nº e não há
+# lista de participantes da reunião, usamos esta dica de quantidade.
+ASSEMBLYAI_FALLBACK_SPEAKERS = int(
+    os.getenv("ESCRIBA_ASSEMBLYAI_FALLBACK_SPEAKERS", "30"))
 
 # --- Motor local (Faster-Whisper + diarização ONNX) -------------------------
 # large-v3-turbo: qualidade próxima do large-v3, bem mais rápido na CPU.
@@ -44,9 +49,17 @@ WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")      # auto | cuda | cpu
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "auto")    # auto | int8 | float16...
 WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
 CPU_THREADS = int(os.getenv("ESCRIBA_CPU_THREADS", str(os.cpu_count() or 4)))
+# Separação de falantes: "auto" usa o pyannote community-1 (PyTorch) quando há
+# GPU NVIDIA utilizável ou 16 GB+ de RAM e o modelo está em models/; senão, o
+# caminho ONNX (sem PyTorch). "pyannote" força; "onnx" desliga o pyannote.
+DIARIZADOR = os.getenv("ESCRIBA_DIARIZADOR", "auto").strip().lower()
+PYANNOTE_DIR = Path(os.getenv("ESCRIBA_PYANNOTE_DIR", MODELS_DIR / "pyannote-community-1"))
+# Lote da segmentação/embedding do pyannote: 8 cabe em GPU de 2 GB (GTX 750 Ti).
+PYANNOTE_LOTE = int(os.getenv("ESCRIBA_PYANNOTE_LOTE", "8"))
 DIARIZATION_MODEL = os.getenv(
     "ESCRIBA_DIARIZATION_MODEL",
-    str(MODELS_DIR / "diarizacao" / "nemo_en_titanet_small.onnx"))
+    str(MODELS_DIR / "diarizacao"
+        / "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"))
 
 
 def _float_env(nome: str, padrao: float) -> float:

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 import threading
 
@@ -119,6 +120,22 @@ def _corta(text: str, limite: int) -> str:
     return cortado[:fim + 1] if fim > 0 else cortado
 
 
+def _nome_falado(nome: str, todos: Sequence[str]) -> str:
+    """Como o nome é dito na reunião: o 1º nome ("Carmem Carlotti" -> "Carmem").
+
+    Se outro nome da lista começa igual ("José Eduardo" e "José Carlos"), usa
+    os dois primeiros. Medido no salão 10/10: o nome completo gasta o orçamento
+    do hotwords, a frase dos irmãos some e a separação piora (DER 22,4 -> 27,4)."""
+    partes = nome.split()
+    if len(partes) < 2:
+        return nome
+    primeiro = _irmaos.fold(partes[0])
+    outros = {_irmaos.fold(t) for t in todos
+              if t.split() and _irmaos.fold(t.split()[0]) == primeiro}
+    repetido = len(outros - {_irmaos.fold(nome)}) > 0
+    return " ".join(partes[:2]) if repetido else partes[0]
+
+
 def _hotwords(vocabulary: Optional[list[str]], language: Optional[str],
               irmaos: Sequence = ()) -> Optional[str]:
     """Texto reaplicado como contexto em toda janela de 30 s do Whisper.
@@ -131,6 +148,8 @@ def _hotwords(vocabulary: Optional[list[str]], language: Optional[str],
     names = [n.strip() for n in vocabulary or [] if n.strip()]
     terms = [t for t in config.EXTRA_TERMS if t not in names]
     if language in (None, "pt"):
+        todos = [*names, *(e.nome for e in irmaos)]
+        names = list(dict.fromkeys(_nome_falado(n, todos) for n in names))
         if len(names) > 1:
             text = f"Reunião com {', '.join(names[:-1])} e {names[-1]}."
         elif names:
@@ -138,7 +157,8 @@ def _hotwords(vocabulary: Optional[list[str]], language: Optional[str],
         else:
             text = "Reunião de trabalho."
         # Irmãos da lista (mais recentes primeiro), em frase pontuada à parte
-        frase = _irmaos.frase_irmaos(list(irmaos), HOTWORDS_IRMAOS_CHARS, excluir=names)
+        frase = _irmaos.frase_irmaos(list(irmaos), HOTWORDS_IRMAOS_CHARS, excluir=names,
+                                     forma=lambda n: _nome_falado(n, todos))
         if frase:
             text += f" {frase}"
         if terms:
@@ -390,6 +410,14 @@ class LocalEngine:
 
         # Os nomes reconhecidos pela voz também ajudam o Whisper na grafia
         vocabulary = list(dict.fromkeys([*(vocabulary or []), *names]))
+        # Separação de falantes pelo pyannote (se a máquina aguenta): roda na
+        # GPU em paralelo com o Whisper; se falhar, segue o caminho ONNX.
+        from . import pyannote_diar
+        usar_pya, motivo_pya = pyannote_diar.disponivel()
+        rodada_pya = pyannote_diar.Rodada(audio, diarize.SAMPLE_RATE) if usar_pya else None
+        self.scan["diarizador"] = ("pyannote community-1 · " if usar_pya else "ONNX · ") + motivo_pya
+        _log.info("separação de falantes: %s", self.scan["diarizador"])
+
         # ---- Fase 2: transcrição -----------------------------------------
         progress(f"Fase 2/3 · Carregando modelo de transcrição ({config.WHISPER_MODEL})")
         model = _whisper_model()
@@ -426,9 +454,16 @@ class LocalEngine:
         buracos = self._buracos(audio, words, coro, model, hot, language, progress)
 
         progress("Fase 2/3 · Separando as falas por pessoa")
-        sentences, centroids = diarize.diarize(
-            audio, words, extractor,
-            min_speakers=min_speakers, max_speakers=max_speakers)
+        turnos_pya = rodada_pya.resultado() if rodada_pya else None
+        if turnos_pya:
+            sentences, centroids = diarize.diarize_por_turnos(
+                audio, words, extractor, turnos_pya)
+        else:
+            if rodada_pya:
+                self.scan["diarizador"] = f"ONNX · pyannote falhou ({rodada_pya.erro})"
+            sentences, centroids = diarize.diarize(
+                audio, words, extractor,
+                min_speakers=min_speakers, max_speakers=max_speakers)
         if buracos:
             sentences = _junta_buracos(sentences, centroids, buracos, extractor, audio)
 
@@ -458,16 +493,26 @@ class LocalEngine:
         def embed(a: float, b: float) -> np.ndarray:
             return diarize._embed_span(extractor, audio, a, b)
 
-        out, pessoas, self.estudo_info = turnos.reatribui(
-            out, embed, irmaos=entradas, participantes=list(vocabulary or []))
+        # Com o pyannote, os falantes já vêm separados: `turnos.reatribui` e
+        # `estudo.aplica` foram feitos para partir os grupos grossos do ONNX e,
+        # por cima do pyannote, pioram (salão 10/10: DER 30,6 com eles, 23,6
+        # sem). Os nomes vêm do motor de estrutura, depois. ESCRIBA_PYANNOTE_POS
+        # (tudo | sem_estudo | sem_reatribui | nada) só para laboratório.
+        pos = os.getenv("ESCRIBA_PYANNOTE_POS", "nada") if turnos_pya else "tudo"
+        pessoas = []
+        self.estudo_info = {"ativo": False}
+        if pos in ("tudo", "sem_estudo"):
+            out, pessoas, self.estudo_info = turnos.reatribui(
+                out, embed, irmaos=entradas, participantes=list(vocabulary or []))
         # Estudo por palavra (dirigente ↔ chamado, nome só com evidência).
         # A guarda deixa a conversa comum como está.
         progress("Fase 2/3 · Conferindo a estrutura da reunião")
-        res = estudo.aplica(sentences, out, pessoas, embed, entradas,
-                            list(vocabulary or []))
-        if res.ativa:
-            out, pessoas = res.segmentos, res.pessoas
-        self.estudo_info = {**self.estudo_info, "estudo_por_palavra": res.info}
+        if pos in ("tudo", "sem_reatribui"):
+            res = estudo.aplica(sentences, out, pessoas, embed, entradas,
+                                list(vocabulary or []))
+            if res.ativa:
+                out, pessoas = res.segmentos, res.pessoas
+            self.estudo_info = {**self.estudo_info, "estudo_por_palavra": res.info}
         if self.buracos_info:
             self.estudo_info["buracos"] = self.buracos_info
         self.estudo = [dataclasses.asdict(p) for p in pessoas]

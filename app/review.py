@@ -16,8 +16,8 @@ from collections import Counter
 from dataclasses import asdict
 from difflib import SequenceMatcher
 
-from . import exports, irmaos, jobs
-from .engines.base import CORO_LABEL, Segment
+from . import atribuicao, correcao_nomes, exports, irmaos, jobs
+from .engines.base import NAO_PESSOA, Segment
 
 SEG_FILE = "segmentos.json"
 log = logging.getLogger("escriba.review")
@@ -93,21 +93,63 @@ def apply_corrections(text: str, corrections: list[dict]) -> str:
     return text
 
 
+_alvos_cache: dict[str, list[str]] = {}
+
+
+def _alvos_nome(job: jobs.Job) -> list[str]:
+    """Nomes JÁ resolvidos nesta reunião, para corrigir garbles no texto:
+    papéis do cadastro + nomes cravados (sem dúvida) pelo motor de estrutura."""
+    if job.id in _alvos_cache:
+        return _alvos_cache[job.id]
+    alvos: list[str] = []
+    for nome in ((job.meeting or {}).get("papeis") or {}).values():
+        if nome and nome not in alvos:
+            alvos.append(nome)
+    atrib = load_atribuicao(job)
+    if atrib is not None:
+        for f in atrib.get("falas", []):
+            quem = (f.get("quem") or "").strip()
+            if quem and not f.get("duvida") and not quem.startswith("[?]") \
+                    and quem != atribuicao._CORO_QUEM and quem not in alvos:
+                alvos.append(quem)
+    _alvos_cache[job.id] = alvos
+    return alvos
+
+
 def corrige_texto(text: str, job: jobs.Job, entradas=None) -> str:
-    """Grafias cadastradas na lista de irmãos ("Módemir" -> "Ademir") e depois
+    """Grafias cadastradas na lista de irmãos ("Módemir" -> "Ademir"), correção
+    de NOME resolvido no texto ("Ademir Balbino" -> "Ademir Baldino") e depois
     as correções da revisão. O cru (segmentos.json) não muda."""
     if entradas is None:
         entradas = irmaos.listar_seguro(log)
-    return apply_corrections(
-        irmaos.corrige_texto(text, entradas, job.participants or ()), job.corrections)
+    texto = irmaos.corrige_texto(text, entradas, job.participants or ())
+    texto = correcao_nomes.corrige(texto, _alvos_nome(job))
+    return apply_corrections(texto, job.corrections)
+
+
+def load_atribuicao(job: jobs.Job) -> dict | None:
+    """Resultado do motor de estrutura (reunião religiosa), se existir."""
+    path = job.path(atribuicao.ATRIB_FILE)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        log.exception("atribuicao.json ilegível no job %s", job.id)
+        return None
 
 
 def segments_for(job: jobs.Job) -> list[Segment]:
-    """Segmentos já com as correções de grafia aplicadas."""
+    """Segmentos já com as correções de grafia aplicadas.
+
+    Reunião religiosa com motor de estrutura: vêm de atribuicao.json (texto já
+    dividido, speaker = rótulo por pessoa P01…). Senão, do segmentos.json cru."""
     entradas = irmaos.listar_seguro(log)
+    atrib = load_atribuicao(job)
+    base = atribuicao.segmentos(atrib) if atrib is not None else load_raw(job)
     return [
         Segment(s.start, s.end, s.speaker, corrige_texto(s.text, job, entradas))
-        for s in load_raw(job)
+        for s in base
     ]
 
 
@@ -206,12 +248,13 @@ def render_outputs(job_id: str) -> None:
 # --------------------------------------------------------------------------
 def speakers_overview(job: jobs.Job) -> list[dict]:
     """Um item por 'Falante N': quantas falas, palavras e trechos de amostra."""
-    raw_segs = load_raw(job)
+    atrib = load_atribuicao(job)
+    raw_segs = atribuicao.segmentos(atrib) if atrib is not None else load_raw(job)
     entradas = irmaos.listar_seguro(log)
     default = exports.speaker_map(raw_segs)
     rows: dict[str, dict] = {}
     for seg in raw_segs:
-        if seg.speaker == CORO_LABEL:          # trecho de coro não é uma pessoa
+        if seg.speaker in NAO_PESSOA:          # coro / fora da reunião não é pessoa
             continue
         label = default[seg.speaker]
         row = rows.setdefault(label, {

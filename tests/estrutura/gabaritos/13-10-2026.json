@@ -1,0 +1,21 @@
+{
+  "_leia": "Gabarito da reunião de 13-10-2026 (meio de semana), confirmado pelo Eduardo. Entrada de teste: o PDF antigo do Escriba (segmentação ruim, sem tempo real). No computador do Eduardo, rodar também com os segmentos do job AssemblyAI cad3d865c97b (segmentos.json) — é o teste de verdade.",
+  "entrada": "dados/13-10-2026_segmentos_do_pdf.json",
+  "tipo": "meio_de_semana",
+  "papeis_informados": {"presidente": "Fábio Vizignani"},
+  "itens": [
+    {"ancora": "A palavra de Deus, nós vamos ver como que nós lidamos", "papel": "presidente", "quem": "Fábio Vizignani", "fonte": "eduardo"},
+    {"ancora": "Imagina que você está viajando de carro", "quem": "Vinícius Santos", "fonte": "eduardo"},
+    {"ancora": "Para iniciar, quem pode ler para mim", "quem": "Gabriel Perandini", "fonte": "eduardo"},
+    {"ancora": "Quando Jeremias acabou de falar a todo o povo", "quem": "Rogério Pinheiro", "fonte": "eduardo"},
+    {"ancora": "Professora Flávia, tudo bem?", "quem_um_de": ["Ana Lídia", "Flávia Santos"], "fonte": "eduardo"},
+    {"ancora": "Kelly, que bom que você está bem", "quem_um_de": ["Jaqueline Brandão", "Kelly Vizignani"], "fonte": "eduardo"},
+    {"ancora": "Ser observador é uma vantagem", "quem": "Jean Manara", "fonte": "eduardo"},
+    {"ancora": "Então, quando nós assistimos a uma reunião", "quem": "Humberto Marques", "fonte": "eduardo"},
+    {"ancora": "Hoje nós vamos estudar o personagem do Caleb", "quem": "Rinaldo Santos", "fonte": "eduardo"},
+    {"ancora": "Mais ou menos na mesma época que Moisés fugiu do Egito", "quem": "Caio Felipe", "fonte": "eduardo"},
+    {"ancora": "Achei interessante, muito importante a parte do irmão", "quem": "William Brandão", "fonte": "eduardo"},
+    {"ancora": "Em tesouro, na palavra de Deus, destacou bem", "duvida_com": "Fernando Croce", "fonte": "eduardo"},
+    {"ancora": "Muito obrigado, Fernando, também pelo comentário", "papel": "presidente", "quem": "Fábio Vizignani", "fonte": "eduardo"}
+  ]
+}

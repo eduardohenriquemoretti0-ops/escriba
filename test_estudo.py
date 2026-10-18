@@ -434,3 +434,21 @@ def test_chamada_com_por_favor_vale_como_evidencia():
 
 def test_nome_composto_com_segunda_parte_desconhecida_fica_so_o_primeiro():
     assert _sugestao("Mais alguém? Irmão Fernando Cross.") == "[?] Fernando?"
+
+
+def test_nome_composto_sem_primeiro_nome_conhecido_vira_duvida():
+    # "né, Monja Ilson?" era o Jailson: "Ilson" parece Jailson, "Monja" não
+    lista = LISTA + [irmaos.Entrada("j", "Jailson")]
+    extra = [(D, "Para reforçar, né, Monja Ilson?", 3), (6, COMENTARIO, 6),
+             (D, "Vamos ao parágrafo 5.", 2)]
+    frases, segs, embed = _reuniao(_estudo(extra))
+    res = estudo.aplica(frases, segs, [], embed, lista, [])
+    assert _nome_em(res, _inicio_do_texto(frases, "Jeová cuida", 8) + 1)[1] == "[?]"
+
+
+def test_chamada_com_artigo_vale_no_estudo():
+    extra = [(D, "E informou o Silas?", 2), (D, COMENTARIO, 6),
+             (D, "Isso mesmo. Obrigado. Parágrafo 5.", 3)]
+    frases, segs, embed = _reuniao(_estudo(extra))
+    res = estudo.aplica(frases, segs, [], embed, LISTA, [])
+    assert _nome_em(res, _inicio_do_texto(frases, "Jeová cuida", 8) + 1)[1] == "Silas"

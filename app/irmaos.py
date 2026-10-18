@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 from . import arquivo_seguro, config
 
@@ -291,22 +291,25 @@ def _frase(nomes: list[str]) -> str:
 
 
 def frase_irmaos(entradas: Sequence[Entrada], limite: int,
-                 excluir: Iterable[str] = ()) -> str:
+                 excluir: Iterable[str] = (),
+                 forma: Callable[[str], str] = lambda n: n) -> str:
     """Frase pontuada com os nomes mais recentes que cabem em `limite` caracteres.
 
     Nunca corta no meio: um nome que não cabe é pulado e a frase fecha com ponto.
-    `excluir`: nomes já presentes em outra parte do texto (não repete)."""
+    `excluir`: nomes já presentes em outra parte do texto (não repete).
+    `forma`: como o nome entra na frase (ex.: só o nome falado, "Carmem")."""
     excl = {fold(x) for x in excluir}
     escolhidos: list[str] = []
     vistos: set[str] = set()
     for e in sorted(entradas, key=lambda x: -x.atualizado):
-        k = fold(e.nome)
+        nome = forma(e.nome)
+        k = fold(nome)
         if k in excl or k in vistos:
             continue
-        cand = _frase([*escolhidos, e.nome])
+        cand = _frase([*escolhidos, nome])
         if len(cand) > limite:
             continue
-        escolhidos.append(e.nome)
+        escolhidos.append(nome)
         vistos.add(k)
     return _frase(escolhidos) if escolhidos else ""
 

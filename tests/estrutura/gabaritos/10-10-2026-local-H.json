@@ -1,0 +1,30 @@
+{
+  "_leia": "Causa H (bugs do motor) da reunião 10-10-2026, reproduzidos no caminho LOCAL (Whisper). A entrada são os segmentos CRUS do reconhecimento de verdade (reconstruídos do job local 652a164009d1, antes do merge), não o AssemblyAI. 'eduardo' = erro que deve passar. 'texto' = alerta: bug conhecido ainda sem correção aprovada (não derruba o teste).",
+  "entrada": "dados/10-10-2026_cru_local.json",
+  "tipo": "fim_de_semana",
+  "papeis_informados": {
+    "presidente": "Rinaldo Santos",
+    "orador": "Ademir Baldino",
+    "dirigente": "José Eduardo Silveira",
+    "leitor": "Wellington Passos"
+  },
+  "itens": [
+    {
+      "ancora": "nós precisamos pedir ajuda, primeiramente oração",
+      "nao_quem": "Tem",
+      "duvida_com": "Marcos",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "Porque isso, além de fortalecer a nossa fé",
+      "quem": "Marines Silveira",
+      "fonte": "eduardo"
+    },
+    {
+      "ancora": "nossos corações cheios de alegria",
+      "papel": "oração final",
+      "quem": "Ademir Baldino",
+      "fonte": "eduardo"
+    }
+  ]
+}

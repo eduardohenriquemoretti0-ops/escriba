@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from .engines.base import CORO_LABEL, Segment
+from .engines.base import CORO_LABEL, FORA_LABEL, FORA_NOME, Segment
 
 
 def hms(seconds: float) -> str:
@@ -37,6 +37,8 @@ def speaker_map(segments: list[Segment]) -> dict[str, str]:
             continue
         if seg.speaker == CORO_LABEL:
             mapping[seg.speaker] = "Em coro"       # não consome um "Falante N"
+        elif seg.speaker == FORA_LABEL:
+            mapping[seg.speaker] = FORA_NOME       # idem
         else:
             mapping[seg.speaker] = f"Falante {sum(1 for v in mapping.values() if v.startswith('Falante ')) + 1}"
     return mapping
