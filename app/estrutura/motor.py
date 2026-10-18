@@ -23,8 +23,8 @@ from collections import Counter
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from .eventos import Evento, Regras
-from .nomes import Lista, Pessoa, Resolucao, fold
+from .eventos import NOME_RX, Evento, Regras
+from .nomes import Lista, Pessoa, Resolucao, fold, fonetica
 
 COND = ("chamada", "agradecimento", "paragrafo", "pergunta")
 # eventos que mostram que é FALA (não letra de cântico)
@@ -32,6 +32,7 @@ FALA_NAO_LETRA = ["designacao", "fecha_parte", "paragrafo", "agradecimento", "en
                   "recapitulacao", "tema_discurso", "oracao_designada", "pergunta", "convite_dirigente"]
 CORO = "Em coro"
 FORA = "(fora da reunião)"
+VOZ_CORO = "CORO"          # rótulo que o motor de transcrição dá ao canto da assistência
 
 
 def hms(t: float) -> str:
@@ -93,6 +94,8 @@ class Contexto:
         self.blocos: list[Bloco] = []
         self.vozes_pessoa: dict[str, Counter] = {}   # pessoa -> vozes já atribuídas com segurança
         self._cache: dict[str, list[Evento]] = {}
+        # quem o Eduardo digitou em "participaram da reunião": vence a lista geral
+        self.participantes: Optional[Lista] = None
 
     # ------------------------------------------------------------ eventos
     def ev(self, f: Fala, tipos=None) -> list[Evento]:
@@ -112,8 +115,11 @@ class Contexto:
         if not a or not b:
             return False
         meio = f.ini + (f.fim - f.ini) * (len(a) / max(1, len(t)))
-        f1 = Fala(f.ini, meio, a, f.voz, f.seg)
-        f2 = Fala(meio, f.fim, b, f.voz, f.seg)
+        # as metades herdam a marcação (quem dividiu remarca a parte que muda de dono)
+        marca = dict(quem=f.quem, papel=f.papel, parte=f.parte, confianca=f.confianca,
+                     duvida=f.duvida, motivo=f.motivo)
+        f1 = Fala(f.ini, meio, a, f.voz, f.seg, **marca)
+        f2 = Fala(meio, f.fim, b, f.voz, f.seg, **marca)
         self.F[i:i + 1] = [f1, f2]
         return True
 
@@ -123,6 +129,8 @@ class Contexto:
         if not ouvido:
             return None
         r = self.lista.resolver(ouvido, genero)
+        if self.participantes is not None:
+            r = self._pelos_participantes(ouvido, genero, r)
         # voz confirma: entre homônimos, fica quem já falou com essa voz nesta reunião
         if r.duvida and r.candidatos and vozes:
             def afinidade(p: Pessoa) -> float:
@@ -135,6 +143,36 @@ class Contexto:
             if notas[0][0] >= 0.5 and (len(notas) == 1 or notas[1][0] < 0.2):
                 return Resolucao(ouvido, notas[0][1], [], "media",
                                  f"{r.motivo}; voz igual à de {notas[0][1].nome} nesta reunião")
+        return r
+
+    def _pelos_participantes(self, ouvido: str, genero: Optional[str], r: Resolucao) -> Resolucao:
+        """Nome ouvido casado primeiro com os participantes informados da reunião.
+
+        Um só participante casa -> é ele (mesmo que a lista geral diga outro ou fique em
+        dúvida). Dois casam ("Arlete" com Arlete Hoenne e Arlete Oliveira) -> a dúvida
+        fica só entre eles. Nenhum casa -> vale a lista geral, como antes."""
+        rp = self.participantes.resolver(ouvido, genero)
+        if rp.pessoa is None and not rp.candidatos:
+            # apelido/nome cortado só entre os participantes: "Will" William, "Rafa" Rafael
+            t = fold(ouvido.split()[0]) if ouvido.split() else ""
+            pref = [p for p in self.participantes.pessoas
+                    if len(t) >= 4 and fold(p.tokens[0]).startswith(t) and fold(p.tokens[0]) != t]
+            if len(pref) == 1:
+                rp = Resolucao(ouvido, pref[0], [], "media", f"'{ouvido}' é o começo de {pref[0].nome}")
+        if rp.pessoa is None and not rp.candidatos and len(ouvido.split()) >= 2:
+            # "Zé Eduardo": uma palavra do ouvido bate com uma palavra de um único participante
+            achou = [p for p in self.participantes.pessoas
+                     if any(len(o) >= 4 and any(fonetica(o) == fonetica(t) for t in p.tokens)
+                            for o in ouvido.split())]
+            if len(achou) == 1:
+                rp = Resolucao(ouvido, achou[0], [], "media", f"'{ouvido}' casa com {achou[0].nome}")
+        if rp.pessoa is not None:
+            if r.pessoa is not None and fold(r.pessoa.nome) == fold(rp.pessoa.nome):
+                return r
+            conf = "media" if rp.confianca != "baixa" else "baixa"
+            return Resolucao(ouvido, rp.pessoa, [], conf, f"participante informado na reunião ({rp.motivo})")
+        if len(rp.candidatos) > 1 and rp.motivo != "fora da lista (parecido)":
+            return Resolucao(ouvido, None, rp.candidatos, "baixa", f"{rp.motivo} entre os participantes")
         return r
 
     def aprende_voz(self, pessoa: str, vozes: Counter):
@@ -271,6 +309,11 @@ def perguntas_e_respostas(ctx: Contexto, i0: int, fim_t: float, condutor: str, c
             if dicas:
                 evs = [e for e in evs if not (e.tipo == "chamada" and any(d.ini <= e.ini <= d.fim for d in dicas))]
                 evs += dicas
+            # chamar o leitor pelo nome ("Por favor, Fernandinho") = começa a leitura
+            prim_leitor = (leitor.ouvido if leitor.duvida else leitor.nome).split()[0]
+            evs = [Evento("paragrafo", e.ini, e.fim, None, None, "forte")
+                   if e.tipo == "chamada" and e.nome and _mesmo_nome(e.nome.split()[0], prim_leitor)
+                   else e for e in evs]
         return sorted(evs, key=lambda e: e.ini)
 
     # --- vozes do condutor: as que mais carregam chamada/agradecimento/parágrafo
@@ -350,6 +393,9 @@ def perguntas_e_respostas(ctx: Contexto, i0: int, fim_t: float, condutor: str, c
     i = i0
     while dentro(i):
         f = F[i]
+        if f.quem == CORO:
+            i += 1
+            continue
         apres = ctx.ev(f, ["apresentacao"])
         cond = cond_evs(f)
 
@@ -544,18 +590,159 @@ def janela_presidente(ctx: Contexto, i0: int, i1: int, pres: str, pres_duvida: b
     return i1
 
 
+# ---------------------------------------------------------------------
+#  ÂNCORAS: NOME + PAPEL (regra do Eduardo, 2026-10-18)
+#  Não existe roteiro de frases. O que existe é: um NOME dito junto do que a
+#  pessoa vai fazer (orador, dirigente, leitor, oração). O motor crava o nome
+#  e o papel, e a ordem da reunião diz onde cada um entra.
+# ---------------------------------------------------------------------
+_MENCAO = re.compile(r"(?i:\b(?:irm[ãa]o?s?|dona)\s+(?:(?:o|a|nosso|nossa)\s+)?)" + NOME_RX)
+_SUFIXO_APELIDO = ("inho", "inha", "zinho", "zinha")
+
+
+def _frase(texto: str, pos: int) -> tuple[int, int]:
+    """Começo e fim da frase que contém pos."""
+    ini = max(texto.rfind(c, 0, pos) for c in ".!?") + 1
+    m = re.search(r"[.!?]", texto[pos:])
+    fim = pos + m.end() if m else len(texto)
+    while ini < len(texto) and texto[ini].isspace():
+        ini += 1
+    return ini, fim
+
+
+def _mesmo_nome(palavra: str, nome: str) -> bool:
+    """'Henrique' = 'Henrique'; 'Fernandinho' = 'Fernando'; grafias que soam igual."""
+    if fonetica(palavra) == fonetica(nome):
+        return True
+    fp, fn = fold(palavra), fold(nome)
+    if len(fn) >= 4 and fp.endswith(_SUFIXO_APELIDO):
+        raiz = fn[:-1] if fn[-1] in "aeo" else fn
+        return fp.startswith(raiz)
+    return False
+
+
+def cita(f: Fala, nome: Optional[str], ultima: bool = False) -> Optional[int]:
+    """Posição em que o PRIMEIRO nome da pessoa é dito no trecho (None se não é dito)."""
+    if not nome:
+        return None
+    toks = [t for t in nome.replace("[?]", "").replace("?", "").split() if t[:1].isupper()]
+    if not toks:
+        return None
+    achado = None
+    for m in re.finditer(r"[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\wÀ-ÿ]+", f.texto):
+        if _mesmo_nome(m.group(0), toks[0]):
+            achado = m.start()
+            if not ultima:
+                break
+    return achado
+
+
+def papel_perto(ctx: Contexto, texto: str, ini: int, fim: int) -> Optional[str]:
+    """Que papel é dito junto do nome (na mesma frase, até papel_raio_chars)."""
+    raio = ctx.R.lim("papel_raio_chars", 140)
+    a, b = _frase(texto, ini)
+    jan_ini, jan_fim = max(a, ini - raio), min(b, fim + raio)
+    janela = fold(texto[jan_ini:jan_fim])
+    melhor, dist = None, None
+    for papel, palavras in ctx.R.papel_palavras.items():
+        for w in palavras:
+            for m in re.finditer(r"\b" + re.escape(w), janela):
+                p = jan_ini + m.start()
+                d = (ini - p) if p < ini else max(0, p - fim)
+                if dist is None or d < dist:
+                    melhor, dist = papel, d
+    return melhor
+
+
+def mencoes(ctx: Contexto, i0: int, i1: int, papel: Optional[str] = None) -> list[tuple[int, str]]:
+    """'irmão X' / 'irmã X' ditos em F[i0:i1] (com o papel dito junto, se pedido)."""
+    achados = []
+    for i in range(i0, min(i1, len(ctx.F))):
+        t = ctx.F[i].texto
+        for m in _MENCAO.finditer(t):
+            nome = ctx.R.limpa_nome(m.group("nome"), t, m.end("nome"))
+            if not nome:
+                continue
+            if papel is None or papel_perto(ctx, t, m.start(), m.end()) == papel:
+                achados.append((i, nome))
+    return achados
+
+
+def _mais_citado_no_papel(ctx: Contexto, papel: str, i0: int, i1: int, ultimo: bool = False,
+                          primeiro: bool = False) -> Optional[str]:
+    achados = mencoes(ctx, i0, i1, papel)
+    if not achados:
+        return None
+    if ultimo or primeiro:
+        return achados[-1 if ultimo else 0][1]
+    return Counter(n for _, n in achados).most_common(1)[0][0]
+
+
+def _ancora_discurso(ctx: Contexto, orador: Optional[str], i1: int, d_min: float) -> Optional[int]:
+    """Última fala que diz o nome do orador antes de um trecho longo (>= d_min) sem ele:
+    é o presidente 'relembrando o tema e o nome do orador e chamando-o'."""
+    F = ctx.F
+    cits = [i for i in range(len(F)) if cita(F[i], orador) is not None]
+    for k, i in enumerate(cits):
+        if i >= i1:
+            break
+        prox = F[cits[k + 1]].ini if k + 1 < len(cits) else F[-1].fim
+        if prox - F[i].fim >= d_min:
+            return i
+    return None
+
+
+def _monologo(ctx: Contexto, i1: int, d_min: float) -> Optional[int]:
+    """Sem nome nenhum: o discurso é o trecho longo de uma mesma voz na 1ª metade.
+    Devolve a fala ANTERIOR a ele (a do presidente que chama o orador)."""
+    F = ctx.F
+    k = 0
+    while k < min(i1, len(F)):
+        if F[k].voz == VOZ_CORO:
+            k += 1
+            continue
+        j = k
+        while j + 1 < len(F) and (F[j + 1].voz == F[k].voz or npal(F[j + 1].texto) <= 3):
+            j += 1
+        if F[j].fim - F[k].ini >= d_min:
+            return k - 1 if k > 0 else None
+        k = j + 1
+    return None
+
+
+def _divide_depois_da_frase(ctx: Contexto, i: int, pos: int, min_resto: int = 30) -> bool:
+    """Divide a fala i no fim da frase que contém pos, se o resto for longo (outra pessoa)."""
+    _, fim = _frase(ctx.F[i].texto, pos)
+    return npal(ctx.F[i].texto[fim:]) >= min_resto and ctx.dividir(i, fim)
+
+
+def _divide_antes_da_frase(ctx: Contexto, i: int, pos: int, min_antes: int = 15) -> bool:
+    """Divide a fala i no começo da frase que contém pos, se antes dela houver fala longa."""
+    ini, _ = _frase(ctx.F[i].texto, pos)
+    return npal(ctx.F[i].texto[:ini]) >= min_antes and ctx.dividir(i, ini)
+
+
 def fim_de_semana(ctx: Contexto, papeis: dict) -> None:
+    """Boas-vindas -> anuncia orador e tema -> cântico -> oração -> relembra o tema e
+    chama o orador -> discurso -> agradece o orador e chama o dirigente (às vezes o
+    leitor) -> dirigente anuncia o cântico e quem lê -> estudo -> quem faz a oração
+    final (antes do estudo ou depois do cântico final) -> cântico -> oração.
+    Cada passagem é achada pelo NOME de quem vai fazer, não por frase fixa."""
     F, R = ctx.F, ctx.R
+    if not F:
+        return
+    d_min = R.lim("discurso_min_seg", 600)
+    d_max = R.lim("discurso_max_seg", 3000)
+    i_meio = _indice_no_tempo(ctx, F[0].ini + (F[-1].fim - F[0].ini) * 0.5)
+
     # --- presidente: quem abre. Nome só se informado (o presidente não diz o próprio nome).
     pres_r = ctx.resolver(papeis.get("presidente")) if papeis.get("presidente") else None
     pres = pres_r.nome if pres_r else "[?] Presidente"
     pres_duv = pres_r is None or pres_r.duvida
 
-    # --- orador anunciado
-    i_tema, _ = _primeiro(ctx, "tema_discurso")
-    if i_tema is None:
-        i_tema, _ = _primeiro(ctx, "anuncio_orador")
-    orador_ouvido = papeis.get("orador") or _nome_mais_citado(ctx, "anuncio_orador", 0, (i_tema or 0) + 1)
+    # --- orador: o cadastro; senão o nome dito junto de orador/discurso/tema na 1ª metade
+    orador_ouvido = (papeis.get("orador") or _mais_citado_no_papel(ctx, "orador", 0, i_meio)
+                     or _nome_mais_citado(ctx, "anuncio_orador", 0, i_meio))
     orador_r = ctx.resolver(orador_ouvido)
     if orador_r is not None and orador_r.duvida:
         # visitante: entra na lista desta reunião COMO OUVIDO, marcado para confirmar
@@ -565,64 +752,121 @@ def fim_de_semana(ctx: Contexto, papeis: dict) -> None:
     orador_nome = orador_r.nome if orador_r else "[?] Orador"
     orador_duv = orador_r is None or (orador_r.pessoa.origem == "reuniao" and not papeis.get("orador"))
 
-    if i_tema is None:   # sem discurso detectado: tudo vira janela do dirigente
-        i_disc = 0
-    else:
-        i_disc = i_tema + 1
-        # anúncio e começo do discurso no mesmo trecho: divide depois das frases do presidente
-        t = F[i_tema].texto
-        ev_tema = (ctx.ev(F[i_tema], ["tema_discurso"]) or ctx.ev(F[i_tema], ["anuncio_orador"]))[-1]
-        frases = [m for m in re.finditer(r"[^.!?]+[.!?]?", t[ev_tema.ini:])]
-        pos, consumidas = ev_tema.ini, 0
-        for m in frases:
-            fr = m.group(0)
-            if consumidas < 2 or re.search(r"(?i:congrega|tema|orador|irm[ãa]o\s+[A-Z])", fr):
-                pos = ev_tema.ini + m.end()
-                consumidas += 1
-            else:
-                break
-        if npal(t[pos:]) >= 30 and ctx.dividir(i_tema, pos):
-            i_disc = i_tema + 1
+    # --- começo do discurso: a última vez que o presidente diz o nome do orador
+    i_anc = _ancora_discurso(ctx, orador_ouvido, i_meio, d_min)
+    como = "o presidente chama o orador pelo nome"
+    if i_anc is None:
+        i_anc = _monologo(ctx, i_meio, d_min)
+        como = "trecho longo de uma só voz (nome do orador não ouvido)"
+        orador_duv = True
+    if i_anc is None:
+        return       # sem discurso: o resultado sai em dúvida e o worker cai no caminho antigo
+    pos = cita(F[i_anc], orador_ouvido, ultima=True)
+    if pos is not None:
+        _divide_depois_da_frase(ctx, i_anc, pos)
+    i_disc = i_anc + 1
+    # o nome pode ter sido dito só no anúncio, antes do cântico e da oração de abertura:
+    # enquanto só a voz de quem anunciou (ou o coro) fala, o discurso começa depois do "Amém"
+    k, ult_amem = i_disc, None
+    while k < len(F) and F[k].ini - F[i_anc].fim < d_min and F[k].voz in (F[i_anc].voz, VOZ_CORO):
+        if F[k].voz != VOZ_CORO and R.tem("amem", F[k].texto):
+            ult_amem = k
+        k += 1
+    if ult_amem is not None:
+        i_disc = ult_amem + 1
 
-    # --- fim do discurso: agradecimento do presidente depois de >= discurso_min_seg
-    t_min = (F[i_disc].ini + R.lim("discurso_min_seg", 600)) if i_disc < len(F) else 0
-    i_fim, evs_fim = _primeiro(ctx, "fim_discurso", i_disc, None, t_min)
-    if i_fim is None:
-        i_fim, _ = _primeiro(ctx, "convite_dirigente", i_disc, None, t_min)
-    if i_fim is not None and evs_fim:
-        e = evs_fim[0]
-        if npal(F[i_fim].texto[:e.ini]) >= 15 and ctx.dividir(i_fim, e.ini):
-            i_fim += 1
+    # --- fim do discurso: depois de d_min, a primeira fala que diz o nome do orador
+    #     (agradecimento) ou o do dirigente (convite). Teto: d_max.
+    dirig_cad = papeis.get("dirigente")
+    t0 = F[i_disc].ini if i_disc < len(F) else F[-1].fim
+    i_fim = None
+    for j in range(i_disc, len(F)):
+        if F[j].ini < t0 + d_min:
+            continue
+        if F[j].ini > t0 + d_max:
+            break
+        p = cita(F[j], orador_ouvido)
+        if p is None:
+            p = cita(F[j], dirig_cad)
+        if p is None:
+            mj = mencoes(ctx, j, j + 1, "dirigente")
+            if mj:
+                p = cita(F[j], mj[0][1])
+        if p is None:
+            evs = ctx.ev(F[j], ["fim_discurso", "convite_dirigente"])
+            p = evs[0].ini if evs else None
+        if p is not None:
+            i_fim = j + 1 if _divide_antes_da_frase(ctx, j, p) else j
+            break
+    fim_incerto = i_fim is None
+    if fim_incerto:      # nome não ouvido: corta no primeiro cântico depois de d_min (abre o estudo)
+        for j in range(i_disc, len(F)):
+            if F[j].ini >= t0 + d_min and (ctx.ev(F[j], ["cantico"]) or F[j].voz == VOZ_CORO):
+                i_fim = j
+                break
+    if i_fim is None or F[i_fim].ini - t0 > d_max:
+        i_fim = _indice_no_tempo(ctx, t0 + d_max)
+        fim_incerto = True
 
     # --- janela 1 do presidente: abertura, cântico, oração, anúncio do orador
-    if i_tema is not None:
-        fim_j1 = janela_presidente(ctx, 0, i_disc, pres, pres_duv, "abertura")
-        delta = fim_j1 - i_disc
-        i_disc += delta
-        if i_fim is not None:
-            i_fim += delta
-        ctx.bloco("abertura", "presidente", pres, 0, i_disc, pres_duv)
-        # --- discurso: tudo entre o anúncio e o agradecimento é do orador
-        fim_disc = i_fim if i_fim is not None else len(F)
-        vozes = Counter(F[k].voz for k in range(i_disc, fim_disc))
-        for k in range(i_disc, fim_disc):
-            F[k].marca(orador_nome, "orador", "discurso", "alta" if not orador_duv else "media",
-                       "entre o anúncio do orador e o agradecimento do presidente", orador_duv)
-        ctx.bloco("discurso", "orador", orador_nome, i_disc, fim_disc, orador_duv)
-        if orador_r is not None:
-            principais = Counter({v: c for v, c in vozes.items() if c >= 0.2 * sum(vozes.values())})
-            ctx.aprende_voz(orador_r.nome if orador_r.pessoa is None else orador_r.pessoa.nome, principais)
-    if i_fim is None:
+    fim_j1 = janela_presidente(ctx, 0, i_disc, pres, pres_duv, "abertura")
+    delta = fim_j1 - i_disc
+    i_disc += delta
+    i_fim += delta
+    ctx.bloco("abertura", "presidente", pres, 0, i_disc, pres_duv)
+
+    # --- discurso: tudo entre a chamada do orador e o agradecimento do presidente
+    vozes = Counter(F[k].voz for k in range(i_disc, i_fim))
+    for k in range(i_disc, i_fim):
+        if F[k].quem == CORO:
+            continue
+        F[k].marca(orador_nome, "orador", "discurso", "alta" if not (orador_duv or fim_incerto) else "media",
+                   f"discurso: {como}", orador_duv)
+    ctx.bloco("discurso", "orador", orador_nome, i_disc, i_fim, orador_duv)
+    if orador_r is not None:
+        principais = Counter({v: c for v, c in vozes.items() if c >= 0.2 * sum(vozes.values())})
+        ctx.aprende_voz(orador_r.nome if orador_r.pessoa is None else orador_r.pessoa.nome, principais)
+    if i_fim >= len(F):
         return
 
-    # --- presidente volta, agradece, chama o dirigente
-    i_conv, evs_conv = _primeiro(ctx, "convite_dirigente", i_fim)
+    # --- presidente volta: agradece o orador e chama o dirigente (às vezes o leitor)
+    lim_conv = min(len(F), i_fim + 6)
+    i_conv, dirig_ouvido = None, dirig_cad
+    if dirig_ouvido:
+        i_conv = next((k for k in range(i_fim, lim_conv) if cita(F[k], dirig_ouvido) is not None), None)
+    if i_conv is None:
+        mj = mencoes(ctx, i_fim, lim_conv, "dirigente")
+        if mj:
+            i_conv = mj[0][0]
+            dirig_ouvido = dirig_ouvido or mj[0][1]
+    if i_conv is None:
+        # pela ordem: depois de agradecer o orador, o nome que o presidente diz (que não
+        # é o do orador nem dito junto de leitura/oração) é o de quem vai dirigir
+        # (quem recebe o "obrigado, irmão X" é o orador, mesmo mal ouvido; o convite vem por último)
+        cands = []
+        for k, nome in mencoes(ctx, i_fim, lim_conv):
+            if cands and k != cands[0][0]:
+                break
+            if cita(Fala(0, 0, nome), orador_ouvido) is not None:
+                continue
+            if any(e.nome and fold(e.nome) == fold(nome) for e in ctx.ev(F[k], ["agradecimento"])):
+                continue
+            p = cita(F[k], nome)
+            if p is not None and papel_perto(ctx, F[k].texto, p, p + len(nome)) in ("leitor", "oracao"):
+                continue
+            cands.append((k, nome))
+        if cands:
+            i_conv, dirig_ouvido = cands[-1][0], dirig_ouvido or cands[-1][1]
+    if i_conv is None:
+        k, evs_conv = _primeiro(ctx, "convite_dirigente", i_fim, lim_conv)
+        if k is not None:
+            i_conv = k
+            dirig_ouvido = dirig_ouvido or (evs_conv[0].nome if evs_conv else None)
     if i_conv is None:
         i_conv = i_fim
-    dirig_ouvido = papeis.get("dirigente") or (evs_conv[0].nome if evs_conv else None) \
-        or _nome_mais_citado(ctx, "convite_dirigente", 0, i_conv + 1)
-    leitor_ouvido = papeis.get("leitor") or _nome_mais_citado(ctx, "leitor", 0, len(F))
     for k in range(i_fim, i_conv + 1):
+        if F[k].quem == CORO:
+            continue
         F[k].marca(pres, "presidente", "volta do presidente", "alta" if not pres_duv else "baixa",
                    "agradece o orador e chama o dirigente", pres_duv)
     ctx.bloco("volta do presidente", "presidente", pres, i_fim, i_conv + 1, pres_duv)
@@ -630,26 +874,42 @@ def fim_de_semana(ctx: Contexto, papeis: dict) -> None:
     dirig_r = ctx.resolver(dirig_ouvido)
     dirig = dirig_r.nome if dirig_r else "[?] Dirigente"
     dirig_duv = dirig_r is None or dirig_r.duvida
+    # leitor: o cadastro; senão o nome dito junto de leitura/leitor depois do convite
+    # (o primeiro: o dirigente anuncia quem lê ao abrir o estudo; depois vêm outros nomes perto de "parágrafo")
+    leitor_ouvido = (papeis.get("leitor") or _mais_citado_no_papel(ctx, "leitor", i_fim, len(F), primeiro=True)
+                     or _nome_mais_citado(ctx, "leitor", 0, len(F)))
     leitor_r = ctx.resolver(leitor_ouvido)
+    # oração final: o último nome dito junto de oração depois do convite
+    # (pode vir antes do estudo ou depois do anúncio do cântico final)
+    oracao_ouvido = _mais_citado_no_papel(ctx, "oracao", i_fim, len(F), ultimo=True)
 
     # --- dirigente: cântico de abertura do estudo
     i = i_conv + 1
     lim_ini = i + 3
     while i < min(lim_ini, len(F)):
+        if F[i].quem == CORO:
+            i += 1
+            continue
         F[i].marca(dirig, "dirigente", "estudo de A Sentinela", "alta" if not dirig_duv else "baixa",
                    "abre o estudo", dirig_duv)
         if ctx.ev(F[i], ["cantico"]):
             i = cantar(ctx, i, "estudo de A Sentinela")
             break
         i += 1
+    while i < len(F) and F[i].quem == CORO:
+        i += 1
     i_estudo = i
 
-    # --- encerramento: último cântico anunciado
+    # --- encerramento: último cântico (anunciado, ou o coro separado pelo motor:
+    #     a fala logo antes do último coro é a do dirigente anunciando)
     i_fin = None
     for k in range(len(F) - 1, i_estudo, -1):
         if ctx.ev(F[k], ["cantico"]):
             i_fin = k
             break
+    k_coro = next((k for k in range(len(F) - 1, i_estudo, -1) if F[k].voz == VOZ_CORO), None)
+    if k_coro is not None and (i_fin is None or i_fin < k_coro - 2):
+        i_fin = next((k for k in range(k_coro - 1, i_estudo, -1) if F[k].voz != VOZ_CORO), None)
     t_fim_qa = F[i_fin].ini if i_fin is not None else F[-1].fim + 1
     i = perguntas_e_respostas(ctx, i_estudo, t_fim_qa, dirig, dirig_duv, "dirigente",
                               "estudo de A Sentinela", leitor_r)
@@ -665,9 +925,27 @@ def fim_de_semana(ctx: Contexto, papeis: dict) -> None:
     # --- final: anúncio (dirigente), cântico, oração designada, depois do Amém = fora
     F[i_fin].marca(dirig, "dirigente", "encerramento", "alta" if not dirig_duv else "baixa",
                    "encerra o estudo e anuncia o cântico final", dirig_duv)
-    ev_or = ctx.ev(F[i_fin], ["oracao_designada"])
-    oracao_r = ctx.resolver(ev_or[0].nome, "m") if ev_or and ev_or[0].nome else None
+    # quem ora: o nome dito DEPOIS do cântico na fala que anuncia o cântico final
+    # ("cântico 149, e após o cântico, nosso irmão X"); senão o dito junto de "oração"
+    ev_c = ctx.ev(F[i_fin], ["cantico"])
+    depois = [m for m in _MENCAO.finditer(F[i_fin].texto) if m.start() >= (ev_c[-1].fim if ev_c else 0)]
+    nome_final = ctx.R.limpa_nome(depois[-1].group("nome"), F[i_fin].texto, depois[-1].end("nome")) if depois else None
+    oracao_ouvido = nome_final or oracao_ouvido
+    oracao_r = ctx.resolver(oracao_ouvido, "m") if oracao_ouvido else None
+    # o mesmo primeiro nome de quem já fez parte nesta reunião (o orador visitante costuma
+    # orar no fim) é essa pessoa, não um homônimo da lista
+    for ja in (orador_r, dirig_r, leitor_r):
+        if (ja is not None and ja.pessoa is not None and oracao_ouvido
+                and _mesmo_nome(oracao_ouvido.split()[0], ja.pessoa.tokens[0])):
+            oracao_r = Resolucao(oracao_ouvido, ja.pessoa, [], "media",
+                                 f"mesmo nome de quem já participou desta reunião ({ja.pessoa.nome})")
+            break
+    if oracao_r is None:
+        ev_or = ctx.ev(F[i_fin], ["oracao_designada"])
+        oracao_r = ctx.resolver(ev_or[0].nome, "m") if ev_or and ev_or[0].nome else None
     j = cantar(ctx, i_fin, "encerramento")
+    while j < len(F) and F[j].quem == CORO:
+        j += 1
     if j < len(F):
         j = orar(ctx, j, oracao_r, None, "oração final", "encerramento")
     while j < len(F):
@@ -693,6 +971,41 @@ def _modo_da_parte(ctx: Contexto, textos: str) -> tuple[str, str]:
             if m.start() > pos_max:
                 pos_max, achado = m.start(), (pid, modo)
     return achado
+
+
+def _designacao_por_nome(ctx: Contexto, i: int) -> list[Evento]:
+    """O presidente anuncia a parte dizendo o NOME de quem vai fazer ('irmão X', 'irmãs X e Y')
+    e em seguida outra voz fala por um tempo: é uma designação, seja qual for a frase."""
+    F = ctx.F
+    t = F[i].texto
+    # o presidente costuma agradecer a parte anterior e, no fim, anunciar a próxima:
+    # nome em frase de agradecimento/parabéns não é designação; vale o último nome
+    nomes = []
+    for m in _MENCAO.finditer(t):
+        if not ctx.R.limpa_nome(m.group("nome"), t, m.end("nome")):
+            continue
+        a, b = _frase(t, m.start())
+        if re.search(r"obrigad|agradec|parabens", fold(t[a:b])):
+            continue
+        nomes.append(m)
+    if not nomes:
+        return []
+    # quem responde: a próxima fala de verdade (pula coro e "Obrigado." curtinho)
+    j = i + 1
+    while j < len(F) and (F[j].voz == VOZ_CORO or (npal(F[j].texto) <= 3 and j - i <= 3)):
+        j += 1
+    if j >= len(F) or F[j].voz == F[i].voz or npal(F[j].texto) < ctx.R.lim("designacao_resposta_min_palavras", 8):
+        return []
+    # a parte dura: outra voz segura a palavra até o presidente voltar (anúncio solto não é parte)
+    k = j
+    while k < len(F) and F[k].voz != F[i].voz:
+        k += 1
+    if (F[k].ini if k < len(F) else F[-1].fim) - F[j].ini < ctx.R.lim("designacao_min_seg", 45):
+        return []
+    # a frase do anúncio pode ter dois nomes ("irmã Ana Lídia, junto com a irmã Flávia")
+    a, _ = _frase(t, nomes[-1].start())
+    m = next(n for n in nomes if n.start() >= a)
+    return [Evento("designacao", m.start(), m.end(), None, None, "media")]
 
 
 def meio_de_semana(ctx: Contexto, papeis: dict) -> None:
@@ -726,7 +1039,7 @@ def meio_de_semana(ctx: Contexto, papeis: dict) -> None:
         if f.quem:
             i += 1
             continue
-        evs_des = ctx.ev(f, ["designacao"])
+        evs_des = ctx.ev(f, ["designacao"]) or _designacao_por_nome(ctx, i)
         # anúncios da congregação e recapitulação: presidente conduz
         if ctx.ev(f, ["recapitulacao"]) and abertura_feita:
             presidente(i, "abre a recapitulação")
@@ -917,12 +1230,37 @@ def sugere_pela_voz(ctx: Contexto) -> None:
 # =====================================================================
 #  ENTRADA
 # =====================================================================
+def _participantes(lista: Lista, nomes: list[str]) -> list[Pessoa]:
+    """Participantes digitados -> pessoas: a da lista quando casa sem dúvida
+    ("Fabio Vizignani" -> Fábio Vizignani); senão como foi digitado ("Rita", "Otavio")."""
+    pessoas, vistos = [], set()
+    for n in nomes:
+        n = (n or "").strip()
+        if not n:
+            continue
+        r = lista.resolver(n)
+        p = r.pessoa if r.pessoa is not None else Pessoa(n, "participante informado na reunião", [], "reuniao")
+        if fold(p.nome) not in vistos:
+            vistos.add(fold(p.nome))
+            pessoas.append(p)
+    return pessoas
+
+
 def analisar(segmentos: list[dict], lista_json: dict, papeis: Optional[dict] = None,
-             tipo: Optional[str] = None, regras: Optional[Regras] = None) -> Resultado:
+             tipo: Optional[str] = None, regras: Optional[Regras] = None,
+             participantes: Optional[list[str]] = None) -> Resultado:
     R = regras or Regras.carregar("religiosa")
     falas = [Fala(float(s["inicio"]), float(s["fim"]), str(s["texto"]).strip(), str(s.get("voz", "")), k)
              for k, s in enumerate(segmentos) if str(s.get("texto", "")).strip()]
     ctx = Contexto(falas, R, Lista.de_json(lista_json))
+    if participantes:
+        part = _participantes(ctx.lista, participantes)
+        ctx.lista = ctx.lista.com_extras([p for p in part if p.origem == "reuniao"])
+        ctx.participantes = Lista(part)
+    # canto que o motor de transcrição já separou como CORO: é da assistência, nunca de uma pessoa
+    for f in falas:
+        if f.voz == VOZ_CORO:
+            f.marca(CORO, "cântico", "", "alta", "canto da assistência (separado pelo motor)")
     tipo = tipo or R.tipo_de_reuniao([f.texto for f in falas[:80]])
     papeis = {k: v for k, v in (papeis or {}).items() if v}
     # papel informado no cadastro da reunião vale como está: se o nome não está na lista,

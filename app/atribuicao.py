@@ -56,8 +56,34 @@ def rodar(job, raw_segments: list[Segment]) -> dict | None:
     papeis = (job.meeting or {}).get("papeis") or None
     # tipo escolhido no cadastro (fim/meio de semana) vale sobre a detecção
     tipo = (job.meeting or {}).get("tipo_reuniao") or None
-    res = analisar(segs, lista, papeis=papeis, tipo=tipo)
-    return res.como_dict()
+    # quem o usuário digitou em "participaram da reunião" (antes era ignorado aqui:
+    # só servia de vocabulário para o Whisper — bug do 17-10-2026)
+    participantes = [p for p in (getattr(job, "participants", None) or []) if p]
+    res = analisar(segs, lista, papeis=papeis, tipo=tipo, participantes=participantes)
+    atrib = res.como_dict()
+    motivo = _estrutura_falhou(atrib)
+    if motivo:
+        # trava (17-10-2026: a reunião inteira saiu "[?]" porque a estrutura não foi achada):
+        # resultado sem estrutura não vai para o PDF; o job segue pelo caminho antigo (perfis)
+        log.warning("motor de estrutura descartado: %s; seguindo pelos perfis", motivo)
+        return None
+    return atrib
+
+
+# fração máxima do tempo de fala que pode ficar "sem estrutura"
+MAX_SEM_ESTRUTURA = 0.35
+
+
+def _estrutura_falhou(atrib: dict) -> str:
+    """Motivo para descartar o resultado do motor ('' se ele achou a estrutura)."""
+    if not atrib.get("blocos"):
+        return "nenhuma parte da reunião foi achada"
+    falas = [f for f in atrib.get("falas", []) if f.get("quem") not in (_CORO_QUEM, _FORA_QUEM)]
+    total = sum(f["fim"] - f["ini"] for f in falas)
+    sem = sum(f["fim"] - f["ini"] for f in falas if f.get("parte") == "sem estrutura")
+    if total > 0 and sem / total > MAX_SEM_ESTRUTURA:
+        return f"{sem / total:.0%} do tempo de fala ficou sem estrutura"
+    return ""
 
 
 def _pessoa_de(fala: dict) -> str:

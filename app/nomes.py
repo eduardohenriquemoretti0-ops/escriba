@@ -30,6 +30,13 @@ _NAME = r"[A-ZÁÂÃÀÉÊÍÓÔÕÚÇ][a-záâãàéêíóôõúç]{2,}"
 _VOCATIVE = re.compile(
     rf"(?:^|[,.!?…]\s+|^(?i:ô|ó|oi|olá|e aí|valeu|obrigad[oa]),?\s+)({_NAME})"
     rf"(?=\s*[,.!?…]|\s*$)", re.MULTILINE)
+# Chamada no começo da frase em conversa/negócios (regra do Eduardo, 2026-10-18):
+# "ah Fulano", "então Siclano, ...", "mas Beltrano você ...". O nome precisa
+# fechar a chamada (pontuação, fim, ou "você/o senhor" logo depois): "Mas Pedro
+# foi..." é narração, não chamada.
+_VOCATIVE_INICIO = re.compile(
+    rf"(?:^|[,.!?…]\s+)(?i:ah|ô|ó|oi|olá|então|mas|olha|pois|e aí|valeu|beleza|tá|obrigad[oa]),?\s+"
+    rf"({_NAME})(?=\s*[,.!?…]|\s*$|\s+(?i:você|vocês|cê|tu|o senhor|a senhora)\b)", re.MULTILINE)
 _INTRO = re.compile(
     rf"\b(?i:aqui (?:é|quem fala é) (?:o|a)|eu sou (?:o|a)|meu nome é|"
     rf"quem fala é (?:o|a)|sou (?:o|a))\s+({_NAME})")
@@ -431,8 +438,10 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     outro nome da lista.
 
     Com mais de 2 falantes, o nome vem da posição no tempo (chamada ->
-    próximo falante; agradecimento -> falante anterior). Com 2, vale também
-    o vocativo "ao interlocutor", como antes.
+    próximo falante; agradecimento -> falante anterior) e da chamada no começo
+    da frase ("ah Fulano", "então Siclano, ...", "mas Beltrano você ...") para
+    quem responde logo depois. Com 2, vale também qualquer vocativo "ao
+    interlocutor", como antes.
     """
     segs = [s for s in segments if s.text.strip()]
     speakers = list(dict.fromkeys(s.speaker for s in segs))
@@ -509,26 +518,33 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
             motivo = "agradecido"
         reasons[(alvo, nome)].append(motivo)
 
-    # --- vocativo "ao interlocutor": só em conversa de 2 pessoas ------------
-    if len(speakers) <= 2:
-        for i, seg in enumerate(segs):
-            for m in _VOCATIVE.finditer(seg.text):
-                word = m.group(1)
-                if _nao_e_nome(word):
-                    continue
-                if _QUOTE.search(seg.text[:m.start()]):
-                    continue                     # está citando outra pessoa
-                name = _resolve(word, known, trusted, entradas)
-                if not name:
-                    continue
-                # Quem chama provavelmente não é o chamado. Peso menor que o voto
-                # a favor: falas curtas ("Valeu, Fernando.") às vezes caem no
-                # falante errado, e o erro não pode anular as pistas boas.
-                votes[seg.speaker][name] -= 0.5
-                target = _addressee(segs, i)
-                if target is not None:
-                    votes[target][name] += 1.0
-                    reasons[(target, name)].append("foi chamado pelo nome")
+    # --- vocativo "ao interlocutor" -------------------------------------------
+    # Em 2 pessoas, qualquer vocativo; com mais gente, só a chamada de começo de
+    # frase ("então Fulano, ...") e só para quem responde logo em seguida.
+    dois = len(speakers) <= 2
+    for i, seg in enumerate(segs):
+        achados = list(_VOCATIVE_INICIO.finditer(seg.text))
+        if dois:
+            achados += list(_VOCATIVE.finditer(seg.text))
+        vistos: set[str] = set()
+        for m in achados:
+            word = m.group(1)
+            if word in vistos or _nao_e_nome(word):
+                continue
+            vistos.add(word)
+            if _QUOTE.search(seg.text[:m.start()]):
+                continue                     # está citando outra pessoa
+            name = _resolve(word, known, trusted, entradas)
+            if not name:
+                continue
+            # Quem chama provavelmente não é o chamado. Peso menor que o voto
+            # a favor: falas curtas ("Valeu, Fernando.") às vezes caem no
+            # falante errado, e o erro não pode anular as pistas boas.
+            votes[seg.speaker][name] -= 0.5
+            target = _addressee(segs, i, so_quem_responde=not dois)
+            if target is not None:
+                votes[target][name] += 1.0
+                reasons[(target, name)].append("foi chamado pelo nome")
 
     # atribuição: maior voto primeiro, 1 nome por falante e vice-versa
     pairs = sorted(((v, spk, name) for spk, d in votes.items() for name, v in d.items()),
@@ -548,15 +564,18 @@ def infer(segments: list[Segment], candidates: Iterable[str] = (),
     return result
 
 
-def _addressee(segs: list[Segment], i: int) -> Optional[str]:
+def _addressee(segs: list[Segment], i: int, so_quem_responde: bool = False) -> Optional[str]:
     """Com quem a fala i está falando: quem fala em seguida (se for outra
-    pessoa e logo depois); senão, quem falou por último antes dela."""
+    pessoa e logo depois); senão, quem falou por último antes dela. Com mais
+    de 2 pessoas (`so_quem_responde`), só vale quem responde em seguida."""
     me = segs[i].speaker
     for j in range(i + 1, len(segs)):
         if segs[j].start - segs[i].end > NEXT_TURN_SECONDS:
             break
         if segs[j].speaker != me:
             return segs[j].speaker
+    if so_quem_responde:
+        return None
     for j in range(i - 1, -1, -1):
         if segs[j].speaker != me:
             return segs[j].speaker

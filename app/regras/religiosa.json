@@ -20,7 +20,7 @@
       "(?i:boa\\s+noite|bom\\s+dia|boa\\s+tarde|boas[- ]vindas|vamos\\s+(?:nos\\s+|se\\s+)?acomodando|dentro\\s+de\\s+(?:alguns\\s+instantes|um\\s+minuto|1\\s+minuto)|ocupar\\s+(?:os\\s+seus\\s+)?lugares)"
     ],
     "cantico": [
-      "(?i:c[âa]ntic[oa]\\s+(?:[ée]\\s+)?(?:o\\s+)?(?:de\\s+)?(?:n[úu]mero|n[ºo°]\\.?)\\s*)(?P<num>\\d{1,3})",
+      "(?i:c[âa]ntic[oa]\\s+(?:[ée]\\s+)?(?:o\\s+)?(?:d[eo]\\s+)?(?:n[úu]mero|n[ºo°]\\.?)\\s*)(?P<num>\\d{1,3})",
       "(?i:entoando\\s+o\\s+c[âa]ntico\\s+)(?P<num>\\d{1,3})",
       "(?i:c[âa]ntico\\s+)(?P<num>\\d{1,3})(?=[\\s.,?])"
     ],
@@ -308,7 +308,18 @@
     "leitura_por_voz_min_palavras": 50,
     "leitura_por_voz_fracao": 0.6,
     "entre_condutor_max_palavras": 5,
-    "resto_chamada_min_palavras": 15
+    "resto_chamada_min_palavras": 15,
+    "discurso_max_seg": 3000,
+    "papel_raio_chars": 140,
+    "designacao_resposta_min_palavras": 8,
+    "designacao_min_seg": 45
+  },
+  "_papel_palavras": "Âncora por NOME + PAPEL (regra do Eduardo, 2026-10-18): não há roteiro de frases. Quando um nome é dito perto de uma destas palavras (na mesma frase, até papel_raio_chars), o motor entende que é o que essa pessoa vai fazer. Acrescente palavras aqui, não frases.",
+  "papel_palavras": {
+    "orador": ["orador", "discurso", "tema", "proferir", "proferimento", "palestra", "conferência"],
+    "dirigente": ["sentinela", "gentinela", "estudo", "dirigir", "dirigente", "conduzir"],
+    "leitor": ["leitura", "leitor", "ler", "parágrafo"],
+    "oracao": ["oração", "orar", "represent", "prece"]
   },
   "palavras_retorno": [
     "isso",

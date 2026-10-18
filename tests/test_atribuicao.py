@@ -89,3 +89,64 @@ def test_rodar_sem_lista_retorna_none(tmp_path, monkeypatch):
     class J:
         meeting: dict = {}
     assert atribuicao.rodar(J(), [Segment(0.0, 1.0, "A", "oi")]) is None
+
+
+def test_trava_descarta_reuniao_sem_estrutura():
+    """17-10-2026: nenhuma parte achada -> a reunião inteira saía "[?]". Agora o
+    resultado é descartado e o job segue pelos perfis."""
+    falas = [{"ini": 0.0, "fim": 60.0, "quem": "[?]", "parte": "sem estrutura"}]
+    assert atribuicao._estrutura_falhou({"blocos": [], "falas": falas})
+    assert "sem estrutura" in atribuicao._estrutura_falhou(
+        {"blocos": [{"parte": "abertura"}], "falas": falas})
+
+
+def test_trava_aceita_reuniao_com_estrutura():
+    falas = [{"ini": 0.0, "fim": 600.0, "quem": "William Brandão", "parte": "abertura"},
+             {"ini": 600.0, "fim": 660.0, "quem": "[?]", "parte": "sem estrutura"},
+             {"ini": 660.0, "fim": 900.0, "quem": "Em coro", "parte": "sem estrutura"}]
+    assert atribuicao._estrutura_falhou({"blocos": [{"parte": "abertura"}], "falas": falas}) == ""
+
+
+def test_rodar_17_10_acha_a_estrutura(dados):
+    """Reunião real de 17-10 (segmentos crus do motor local + pyannote) com o cadastro."""
+    segs = [Segment(s["inicio"], s["fim"], s["voz"], s["texto"])
+            for s in json.loads((DADOS / "17-10-2026_cru_local.json").read_text(encoding="utf-8"))]
+
+    class J:
+        meeting = {"tipo_reuniao": "fim_de_semana",
+                   "papeis": {"presidente": "William Brandão", "orador": "Henrique do Vale",
+                              "dirigente": "Marcelo Almeida", "leitor": "Fernando Santos"}}
+    atrib = atribuicao.rodar(J(), segs)
+    assert atrib is not None
+    partes = {(b["parte"], b["quem"]) for b in atrib["blocos"]}
+    assert ("discurso", "Henrique do Vale") in partes
+    assert ("estudo de A Sentinela", "Marcelo Almeida") in partes
+
+
+PARTICIPANTES_17_10 = [
+    "Jose Eduardo Silveira", "Elza Almeida", "William Brandão", "Alessandra Almeida",
+    "Rinaldo Santos", "Fabio Vizignani", "Ines Vizignani", "Antonio Carlos", "Lucas Silva",
+    "Rafael Silva", "Talita Silva", "Matheus Santos", "Alex Mota", "Luiz", "Ninfa",
+    "Deana Santos", "Flavia Santos", "Henrique do Vale", "Otavio", "Milena", "Alicia", "Isaac",
+    "Arlete Hoenne", "Arlete Oliveira", "Joelma Pinheiro", "Mercedes", "Vivian Manara",
+    "Carmen", "Rita", "Fatima"]
+
+
+def test_participantes_informados_entram_na_atribuicao(dados):
+    """Bug de 17-10-2026: os nomes digitados em 'participaram da reunião' não chegavam
+    ao motor de estrutura (só viravam vocabulário do Whisper)."""
+    segs = [Segment(s["inicio"], s["fim"], s["voz"], s["texto"])
+            for s in json.loads((DADOS / "17-10-2026_cru_local.json").read_text(encoding="utf-8"))]
+
+    class J:
+        participants = PARTICIPANTES_17_10
+        meeting = {"tipo_reuniao": "fim_de_semana",
+                   "papeis": {"presidente": "William Brandão", "orador": "Henrique do Vale",
+                              "dirigente": "Marcelo Almeida", "leitor": "Fernando Santos"}}
+    quem = {f["quem"] for f in atribuicao.rodar(J(), segs)["falas"]}
+    assert "José Eduardo Silveira" in quem        # "irmão Zé Eduardo" (não Eduardo Moretti)
+    assert "Eduardo Moretti" not in quem          # não estava na reunião
+    assert {"Rafael Silva", "Lucas Silva", "Otavio"} <= quem     # "Rafa?", "Lucas?", "Otávio?"
+    # duas Arletes na reunião: continua dúvida, mas só entre as duas
+    arletes = [q for q in quem if "Arlete" in q]
+    assert arletes and all(q.startswith("[?]") and "Hoenne" in q and "Oliveira" in q for q in arletes)

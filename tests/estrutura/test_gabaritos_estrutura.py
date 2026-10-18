@@ -2,7 +2,8 @@
 
 Roda o motor REAL do app (app.estrutura) — o mesmo código que o Escriba usa.
 Nenhuma mudança (regra ou motor) entra se este teste piorar. Item 'eduardo'
-que falha = erro. Item 'texto' que falha = alerta (vira erro quando confirmado).
+(ouvido por ele) ou 'cadastro' (papéis que ele digitou + ordem da reunião que ele
+descreveu) que falha = erro. Item 'texto' que falha = alerta (vira erro quando confirmado).
 Rodar: PYTHONPATH=. python -m pytest tests/estrutura -q
 """
 import json
@@ -33,7 +34,7 @@ def avaliar(arquivo):
         if not falas:
             falas = [f for f in res.falas if it["ancora"][:25] in f.texto]
         if not falas:
-            (erros if it["fonte"] == "eduardo" else alertas).append(f"âncora não achada: {it['ancora']}")
+            (erros if it["fonte"] in ("eduardo", "cadastro") else alertas).append(f"âncora não achada: {it['ancora']}")
             continue
         f = falas[0]
         ok = True
@@ -50,7 +51,7 @@ def avaliar(arquivo):
             ok = False
         if not ok:
             msg = f"{it['ancora'][:45]!r}: saiu '{f.quem}' ({f.papel}); esperado {it.get('quem') or it.get('quem_um_de') or it.get('duvida_com') or ('não ' + it.get('nao_quem', ''))}"
-            (erros if it["fonte"] == "eduardo" else alertas).append(msg)
+            (erros if it["fonte"] in ("eduardo", "cadastro") else alertas).append(msg)
     return res, erros, alertas, len(g["itens"])
 
 
@@ -72,3 +73,13 @@ def test_13_10_meio_de_semana():
 def test_10_10_local_causa_H():
     """Bugs do motor (causa H) no caminho local, com os segmentos crus reais."""
     _teste("10-10-2026-local-H.json")
+
+
+def test_17_10_fim_de_semana():
+    """A reunião que saiu inteira '[?]': âncora por nome + papel, com o cadastro."""
+    _teste("17-10-2026.json")
+
+
+def test_17_10_sem_cadastro():
+    """Mesma reunião sem cadastro: cada papel achado pelo nome dito junto do que a pessoa faz."""
+    _teste("17-10-2026-sem-cadastro.json")

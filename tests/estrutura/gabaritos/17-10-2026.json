@@ -1,0 +1,67 @@
+{
+  "entrada": "dados/17-10-2026_cru_local.json",
+  "tipo": "fim_de_semana",
+  "_leia": "Gabarito da reunião de 17-10-2026 (fim de semana), a que saiu inteira '[?]' no executável. 'cadastro' = papéis digitados pelo Eduardo no cadastro + a ordem da reunião descrita por ele em 2026-10-18 (boas-vindas -> orador/tema -> cântico -> oração -> chama o orador -> discurso -> agradece e chama o dirigente -> cântico/leitor -> estudo -> cântico final + quem ora).",
+  "papeis_informados": {
+    "presidente": "William Brandão",
+    "orador": "Henrique do Vale",
+    "dirigente": "Marcelo Almeida",
+    "leitor": "Fernando Santos"
+  },
+  "itens": [
+    {
+      "ancora": "Muito bem, irmãos, então vamos dar agora",
+      "papel": "presidente",
+      "quem": "William Brandão",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "Obrigados a tudo que o senhor nos preparou",
+      "papel": "presidente",
+      "quem": "William Brandão",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "Uma palavra que só tem duas letras",
+      "papel": "orador",
+      "quem": "Henrique do Vale",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "3.171 anos",
+      "papel": "orador",
+      "quem": "Henrique do Vale",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "Primeiramente a Jeová, agradecemos também",
+      "papel": "presidente",
+      "quem": "William Brandão",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "temático é de Efésios",
+      "papel": "dirigente",
+      "quem": "Marcelo Almeida",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "Como servos de Jeová, nós não participamos das guerras",
+      "papel": "leitor",
+      "quem": "Fernando Santos",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "Muito bem, parabéns. Irmãos, agradeço de coração",
+      "papel": "dirigente",
+      "quem": "Marcelo Almeida",
+      "fonte": "cadastro"
+    },
+    {
+      "ancora": "grato pelo amor que o Senhor demonstra",
+      "papel": "oração final",
+      "quem": "Henrique do Vale",
+      "fonte": "cadastro"
+    }
+  ]
+}

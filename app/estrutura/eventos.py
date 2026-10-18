@@ -40,6 +40,8 @@ class Regras:
         self.nao_e_nome = {fold(w) for w in dados.get("nao_e_nome", [])}
         self.livros = {fold(w) for w in dados.get("livros_com_nome_de_pessoa", [])}
         self.palavras_retorno = {fold(w) for w in dados.get("palavras_retorno", [])}
+        # papel -> palavras que, ditas perto de um nome, dizem o que a pessoa vai fazer
+        self.papel_palavras = {p: [fold(w) for w in ws] for p, ws in dados.get("papel_palavras", {}).items()}
         self._ev: dict[str, list[tuple[re.Pattern, str]]] = {}
         for tipo, lista in dados["eventos"].items():
             comp = []

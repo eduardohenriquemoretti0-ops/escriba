@@ -1,0 +1,38 @@
+{
+  "entrada": "dados/17-10-2026_cru_local.json",
+  "tipo": "fim_de_semana",
+  "_leia": "17-10-2026 SEM cadastro: o motor acha cada papel pelo NOME dito junto do que a pessoa vai fazer. Presidente não diz o próprio nome (fica em dúvida); 'Fernando' tem dois na lista (fica em dúvida).",
+  "papeis_informados": {},
+  "itens": [
+    {
+      "ancora": "Uma palavra que só tem duas letras",
+      "papel": "orador",
+      "fonte": "cadastro",
+      "duvida_com": "Henrique do Vale"
+    },
+    {
+      "ancora": "Primeiramente a Jeová, agradecemos também",
+      "papel": "presidente",
+      "fonte": "cadastro",
+      "duvida_com": "Presidente"
+    },
+    {
+      "ancora": "temático é de Efésios",
+      "papel": "dirigente",
+      "fonte": "cadastro",
+      "quem": "Marcelo Almeida"
+    },
+    {
+      "ancora": "Como servos de Jeová, nós não participamos das guerras",
+      "papel": "leitor",
+      "fonte": "cadastro",
+      "duvida_com": "Fernando"
+    },
+    {
+      "ancora": "grato pelo amor que o Senhor demonstra",
+      "papel": "oração final",
+      "fonte": "cadastro",
+      "duvida_com": "Henrique do Vale"
+    }
+  ]
+}
