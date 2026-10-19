@@ -1,5 +1,14 @@
 # escriba
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Status: testado](https://img.shields.io/badge/status-testado-success)
+![Offline](https://img.shields.io/badge/execu%C3%A7%C3%A3o-100%25%20local%20%2F%20offline-blue)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![Faster-Whisper](https://img.shields.io/badge/ASR-Faster--Whisper-orange)
+
+**Transcrição de reuniões com diarização e geração automática de ata — rodando 100% local, sem enviar áudio para a nuvem.** Motor offline em **Faster-Whisper**, exposto por **CLI e API FastAPI**, pensado para quem precisa de confidencialidade por padrão. A segurança não é acessório: **rate limit aplicado antes da autenticação**, proteção **anti-SSRF no `ffprobe`** e **escrita atômica** de arquivos para não corromper resultados. Um exemplo prático de IA aplicada com controle de dados e cuidado de engenharia.
+
+
 App de **transcrição de áudio → ata de reunião**. Transcrição **local e grátis**
 (Faster-Whisper) por padrão, com provider de API opcional; geração de ata via
 Claude (opcional). Expõe **CLI** (uso imediato) e **API FastAPI**.
